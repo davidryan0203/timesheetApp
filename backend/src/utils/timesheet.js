@@ -11,6 +11,12 @@ const addDays = (date, days) => {
   return new Date(date.getTime() + days * DAY_MS);
 };
 
+const getInclusiveDayCount = (fromDateInput, toDateInput) => {
+  const fromDate = toUTCDate(fromDateInput);
+  const toDate = toUTCDate(toDateInput);
+  return Math.max(Math.floor((toDate.getTime() - fromDate.getTime()) / DAY_MS) + 1, 1);
+};
+
 const formatDateOnly = (date) => {
   return date.toISOString().split('T')[0];
 };
@@ -31,8 +37,10 @@ const getBiWeeklyPeriodStart = (dateInput) => {
   return new Date(ANCHOR_DATE_UTC + periodOffset * DAY_MS);
 };
 
-const generateDefaultEntries = (periodStart) => {
-  return Array.from({ length: BIWEEK_DAYS }, (_, index) => {
+const generateDefaultEntries = (periodStart, periodEnd = addDays(periodStart, BIWEEK_DAYS - 1)) => {
+  const entryCount = getInclusiveDayCount(periodStart, periodEnd);
+
+  return Array.from({ length: entryCount }, (_, index) => {
     const date = addDays(periodStart, index);
     const day = date.getUTCDay();
     const isWeekend = day === 0 || day === 6;

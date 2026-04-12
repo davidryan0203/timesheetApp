@@ -8,6 +8,7 @@ const {
   sumHours,
   toUTCDate,
 } = require('../utils/timesheet');
+const { sendTimesheetAssignedEmail } = require('../utils/mailer');
 
 const formatDateOnly = (dateInput) => {
   return new Date(dateInput).toISOString().split('T')[0];
@@ -121,10 +122,18 @@ const sendOutTimesheets = async (req, res) => {
     return res.status(400).json({ message: 'Pay period From must be earlier than or equal to To.' });
   }
 
-  const dayDiff = Math.round((periodEnd.getTime() - periodStart.getTime()) / (24 * 60 * 60 * 1000));
-  if (dayDiff !== 13) {
-    return res.status(400).json({
-      message: 'Pay period must cover exactly 14 days (From to To inclusive).',
+  const overlappingTimesheet = await Timesheet.findOne({
+    periodStart: { $lte: periodEnd },
+    periodEnd: { $gte: periodStart },
+  })
+    .sort({ periodStart: -1 })
+    .select('periodStart periodEnd');
+
+  if (overlappingTimesheet) {
+    const overlapFrom = formatDateOnly(overlappingTimesheet.periodStart);
+    const overlapTo = formatDateOnly(overlappingTimesheet.periodEnd);
+    return res.status(409).json({
+      message: `Pay period overlaps an existing dispatched period (${overlapFrom} to ${overlapTo}).`,
     });
   }
 
@@ -136,11 +145,15 @@ const sendOutTimesheets = async (req, res) => {
 
   let createdCount = 0;
   let alreadyAssignedCount = 0;
+  let notificationSentCount = 0;
+  let notificationFailedCount = 0;
+  let notificationSkippedCount = 0;
 
   for (const staff of staffUsers) {
     const existing = await Timesheet.findOne({
       user: staff._id,
       periodStart,
+      periodEnd,
     });
 
     if (existing) {
@@ -148,7 +161,7 @@ const sendOutTimesheets = async (req, res) => {
       continue;
     }
 
-    const entries = generateDefaultEntries(periodStart);
+    const entries = generateDefaultEntries(periodStart, periodEnd);
     await Timesheet.create({
       user: staff._id,
       assignedBy: req.user.id,
@@ -160,6 +173,26 @@ const sendOutTimesheets = async (req, res) => {
       totalHours: sumHours(entries),
       submittedAt: null,
     });
+
+    try {
+      const emailResult = await sendTimesheetAssignedEmail({
+        toEmail: staff.email,
+        toName: staff.name,
+        periodStart: formatDateOnly(periodStart),
+        periodEnd: formatDateOnly(periodEnd),
+        dispatcherName: req.user.name,
+      });
+
+      if (emailResult?.skipped) {
+        notificationSkippedCount += 1;
+      } else {
+        notificationSentCount += 1;
+      }
+    } catch (error) {
+      notificationFailedCount += 1;
+      console.error(`Failed to send timesheet email to ${staff.email}:`, error.message);
+    }
+
     createdCount += 1;
   }
 
@@ -170,6 +203,11 @@ const sendOutTimesheets = async (req, res) => {
     createdCount,
     alreadyAssignedCount,
     totalStaff: staffUsers.length,
+    notifications: {
+      sent: notificationSentCount,
+      failed: notificationFailedCount,
+      skipped: notificationSkippedCount,
+    },
   });
 };
 
@@ -186,15 +224,8 @@ const getSubmissionStatusByRange = async (req, res) => {
     return res.status(400).json({ message: 'From must be earlier than or equal to To.' });
   }
 
-  const dayDiff = Math.round((periodEnd.getTime() - periodStart.getTime()) / (24 * 60 * 60 * 1000));
-  if (dayDiff !== 13) {
-    return res.status(400).json({
-      message: 'Status range must cover exactly 14 days (From to To inclusive).',
-    });
-  }
-
   const staffUsers = await User.find({ role: 'staff' }).select('_id name email');
-  const timesheets = await Timesheet.find({ periodStart }).select('user submittedAt distributedAt totalHours');
+  const timesheets = await Timesheet.find({ periodStart, periodEnd }).select('user submittedAt distributedAt totalHours');
   const mapByUserId = new Map(timesheets.map((item) => [String(item.user), item]));
 
   const statusRows = staffUsers.map((staff) => {

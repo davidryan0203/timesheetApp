@@ -331,7 +331,7 @@ const StaffPanel = ({ user }) => {
 
 const DispatcherPanel = ({ user }) => {
   const [periodFrom, setPeriodFrom] = useState(toISODate(new Date()));
-  const [periodTo, setPeriodTo] = useState(toISODate(new Date(Date.now() + 13 * 24 * 60 * 60 * 1000)));
+  const [periodTo, setPeriodTo] = useState(toISODate(new Date()));
   const [statusData, setStatusData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -367,8 +367,11 @@ const DispatcherPanel = ({ user }) => {
         periodFrom,
         periodTo,
       });
+      const notificationInfo = response.data.notifications
+        ? `, Emails Sent: ${response.data.notifications.sent}, Failed: ${response.data.notifications.failed}, Skipped: ${response.data.notifications.skipped}`
+        : '';
       setFeedback(
-        `${response.data.message} Created: ${response.data.createdCount}, Already Assigned: ${response.data.alreadyAssignedCount}`
+        `${response.data.message} Created: ${response.data.createdCount}, Already Assigned: ${response.data.alreadyAssignedCount}${notificationInfo}`
       );
       await loadStatus(periodFrom, periodTo);
     } catch (error) {
@@ -477,7 +480,7 @@ const DispatcherPanel = ({ user }) => {
 const AdminPanel = ({ user }) => {
   const [submittedTimesheets, setSubmittedTimesheets] = useState([]);
   const [statusFrom, setStatusFrom] = useState(toISODate(new Date()));
-  const [statusTo, setStatusTo] = useState(toISODate(new Date(Date.now() + 13 * 24 * 60 * 60 * 1000)));
+  const [statusTo, setStatusTo] = useState(toISODate(new Date()));
   const [statusData, setStatusData] = useState(null);
   const [viewingTimesheet, setViewingTimesheet] = useState(null);
   const [loading, setLoading] = useState(true);

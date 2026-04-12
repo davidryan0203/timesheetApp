@@ -21,7 +21,7 @@ router.post(
   '/period/:date',
   requireRoles('staff'),
   [
-    body('entries').isArray({ min: 1, max: 14 }).withMessage('Entries must contain 1 to 14 rows'),
+    body('entries').isArray({ min: 1 }).withMessage('Entries must contain at least 1 row'),
     body('entries.*.date').notEmpty().withMessage('Each entry must have a date'),
     body('entries.*.entryType').optional().isString().withMessage('Entry type must be text'),
     body('entries.*.hours').optional().isFloat({ min: 0 }).withMessage('Hours must be 0 or higher'),
