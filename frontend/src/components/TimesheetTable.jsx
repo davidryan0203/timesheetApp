@@ -1,4 +1,4 @@
-import dayjs from 'dayjs';
+import { formatDateLabel, formatDayLabel } from '../utils/date';
 
 const TimesheetTable = ({ entries, typeOptions, onEntryChange }) => {
   return (
@@ -18,8 +18,8 @@ const TimesheetTable = ({ entries, typeOptions, onEntryChange }) => {
         <tbody>
           {entries.map((entry, index) => (
             <tr key={entry.dateOnly || entry.date} className="border-t border-slate-100 text-slate-700">
-              <td className="whitespace-nowrap px-3 py-2">{dayjs(entry.dateOnly || entry.date).format('MMM D, YYYY')}</td>
-              <td className="whitespace-nowrap px-3 py-2">{dayjs(entry.dateOnly || entry.date).format('ddd')}</td>
+              <td className="whitespace-nowrap px-3 py-2">{formatDateLabel(entry.dateOnly || entry.date)}</td>
+              <td className="whitespace-nowrap px-3 py-2">{formatDayLabel(entry.dateOnly || entry.date)}</td>
               <td className="px-3 py-2">
                 <select
                   value={entry.entryType || 'Regular Hours'}

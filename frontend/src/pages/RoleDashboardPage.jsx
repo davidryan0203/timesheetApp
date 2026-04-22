@@ -5,7 +5,7 @@ import api from '../services/api';
 import { useAuth } from '../context/useAuth';
 import TimesheetTable from '../components/TimesheetTable';
 import SubmittedTimesheetModal from '../components/SubmittedTimesheetModal';
-import { formatRange, toISODate } from '../utils/date';
+import { formatDateLabel, formatDayLabel, formatRange, toISODate } from '../utils/date';
 
 const TYPE_OPTIONS = ['Regular Hours', 'Overtime', 'Half Day', 'Sick Leave', 'Vacation Leave', 'Off Day'];
 
@@ -187,7 +187,7 @@ const StaffPanel = ({
     setFeedback('');
 
     try {
-      const periodDate = new Date(timesheet.periodStart).toISOString().split('T')[0];
+      const periodDate = toISODate(timesheet.periodStart);
       const response = await api.post(`/timesheets/period/${periodDate}`, {
         entries: normalizeEntriesForUi(timesheet.entries),
         submit,
@@ -336,14 +336,15 @@ const StaffPanel = ({
 };
 
 const HRPanel = ({ user }) => {
-  const [periodFrom, setPeriodFrom] = useState(toISODate(new Date()));
-  const [periodTo, setPeriodTo] = useState(toISODate(new Date()));
+  const [periodFrom, setPeriodFrom] = useState('');
+  const [periodTo, setPeriodTo] = useState('');
   const [statusData, setStatusData] = useState(null);
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [viewingTimesheet, setViewingTimesheet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const filterStorageKey = `hr-dispatch-period-${user?.id || user?._id || 'default'}`;
 
   const loadStatus = useCallback(async (fromValue, toValue) => {
     setLoading(true);
@@ -367,8 +368,58 @@ const HRPanel = ({ user }) => {
   }, []);
 
   useEffect(() => {
+    let active = true;
+
+    const initializePeriod = async () => {
+      try {
+        const saved = localStorage.getItem(filterStorageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed?.from && parsed?.to) {
+            if (!active) {
+              return;
+            }
+            setPeriodFrom(parsed.from);
+            setPeriodTo(parsed.to);
+            return;
+          }
+        }
+      } catch {
+        // Ignore malformed local storage values.
+      }
+
+      try {
+        const latestResponse = await api.get('/timesheets/dispatch/latest-period');
+        if (!active) {
+          return;
+        }
+        setPeriodFrom(latestResponse.data.periodStart);
+        setPeriodTo(latestResponse.data.periodEnd);
+      } catch {
+        if (!active) {
+          return;
+        }
+        const today = toISODate(new Date());
+        setPeriodFrom(today);
+        setPeriodTo(today);
+      }
+    };
+
+    initializePeriod();
+
+    return () => {
+      active = false;
+    };
+  }, [filterStorageKey]);
+
+  useEffect(() => {
+    if (!periodFrom || !periodTo) {
+      return;
+    }
+
+    localStorage.setItem(filterStorageKey, JSON.stringify({ from: periodFrom, to: periodTo }));
     loadStatus(periodFrom, periodTo);
-  }, [periodFrom, periodTo, loadStatus]);
+  }, [periodFrom, periodTo, loadStatus, filterStorageKey]);
 
   const sendOut = async () => {
     setSending(true);
@@ -890,8 +941,8 @@ const AdminPanel = ({ user }) => {
       .map(
         (entry) => `
           <tr>
-            <td>${dayjs(entry.dateOnly || entry.date).format('MMM D, YYYY')}</td>
-            <td>${dayjs(entry.dateOnly || entry.date).format('ddd')}</td>
+            <td>${formatDateLabel(entry.dateOnly || entry.date)}</td>
+            <td>${formatDayLabel(entry.dateOnly || entry.date)}</td>
             <td>${entry.entryType || 'Regular Hours'}</td>
             <td>${Number(entry.hours || 0).toFixed(2)}</td>
             <td>${Number(entry.overtimeHours || 0).toFixed(2)}</td>

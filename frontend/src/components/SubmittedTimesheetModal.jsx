@@ -1,11 +1,14 @@
 import dayjs from 'dayjs';
-import { formatRange } from '../utils/date';
+import { formatDateLabel, formatDayLabel, formatRange } from '../utils/date';
 
 const STATUS_LABELS = {
   draft: 'Draft',
   pending_manager: 'Pending Manager',
   manager_approved: 'Approved by Manager',
   manager_rejected: 'Rejected by Manager',
+  pending_ceo: 'Pending CEO',
+  ceo_approved: 'Approved by CEO',
+  ceo_rejected: 'Rejected by CEO',
   hr_head_approved: 'Approved by HR Head',
   hr_head_rejected: 'Rejected by HR Head',
 };
@@ -66,8 +69,8 @@ const SubmittedTimesheetModal = ({ timesheet, onClose }) => {
             <tbody>
               {timesheet.entries.map((entry) => (
                 <tr key={entry.dateOnly || entry.date} className="border-t border-slate-100 text-slate-700">
-                  <td className="whitespace-nowrap px-3 py-2">{dayjs(entry.dateOnly || entry.date).format('MMM D, YYYY')}</td>
-                  <td className="whitespace-nowrap px-3 py-2">{dayjs(entry.dateOnly || entry.date).format('ddd')}</td>
+                  <td className="whitespace-nowrap px-3 py-2">{formatDateLabel(entry.dateOnly || entry.date)}</td>
+                  <td className="whitespace-nowrap px-3 py-2">{formatDayLabel(entry.dateOnly || entry.date)}</td>
                   <td className="px-3 py-2">{entry.entryType || 'Regular Hours'}</td>
                   <td className="px-3 py-2">{Number(entry.hours || 0).toFixed(2)}</td>
                   <td className="px-3 py-2">{Number(entry.overtimeHours || 0).toFixed(2)}</td>

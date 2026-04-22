@@ -2,7 +2,6 @@ const { validationResult } = require('express-validator');
 const Timesheet = require('../models/Timesheet');
 const User = require('../models/User');
 const {
-  buildPeriod,
   generateDefaultEntries,
   normalizeEntries,
   sumHours,
@@ -85,14 +84,29 @@ const mapResponse = (timesheetDoc) => {
   };
 };
 
+const findAssignedTimesheetForDate = async ({ userId, targetDate, populate = false }) => {
+  const targetUTCDate = toUTCDate(targetDate);
+  let query = Timesheet.findOne({
+    user: userId,
+    periodStart: { $lte: targetUTCDate },
+    periodEnd: { $gte: targetUTCDate },
+  });
+
+  if (populate) {
+    query = query.populate('manager', 'name email').populate('ceo', 'name email');
+  }
+
+  return query;
+};
+
 const getTimesheetByDate = async (req, res) => {
   const targetDate = req.params.date || new Date().toISOString().split('T')[0];
-  const { periodStart } = buildPeriod(targetDate);
 
-  const existing = await Timesheet.findOne({
-    user: req.user.id,
-    periodStart,
-  }).populate('manager', 'name email').populate('ceo', 'name email');
+  const existing = await findAssignedTimesheetForDate({
+    userId: req.user.id,
+    targetDate,
+    populate: true,
+  });
 
   if (!existing) {
     return res.status(404).json({
@@ -110,11 +124,9 @@ const saveTimesheetByDate = async (req, res) => {
   }
 
   const targetDate = req.params.date || new Date().toISOString().split('T')[0];
-  const { periodStart, periodEnd } = buildPeriod(targetDate);
-
-  const existing = await Timesheet.findOne({
-    user: req.user.id,
-    periodStart,
+  const existing = await findAssignedTimesheetForDate({
+    userId: req.user.id,
+    targetDate,
   });
 
   if (!existing) {
@@ -148,7 +160,6 @@ const saveTimesheetByDate = async (req, res) => {
   const timesheet = await Timesheet.findOneAndUpdate(
     { _id: existing._id },
     {
-      periodEnd,
       entries: normalizedEntries,
       customTypes,
       totalHours,
@@ -328,7 +339,8 @@ const getSubmissionStatusByRange = async (req, res) => {
   const staffUsers = await User.find({ role: { $in: ASSIGNABLE_ROLES } }).select('_id name email role');
   const timesheets = await Timesheet.find({ periodStart, periodEnd })
     .populate('manager', 'name email')
-    .select('user submittedAt distributedAt totalHours status manager');
+    .populate('ceo', 'name email')
+    .select('user submittedAt distributedAt totalHours status manager ceo');
   const mapByUserId = new Map(timesheets.map((item) => [String(item.user), item]));
 
   const statusRows = staffUsers.map((staff) => {
@@ -345,11 +357,11 @@ const getSubmissionStatusByRange = async (req, res) => {
       submittedAt: row?.submittedAt || null,
       totalHours: row?.totalHours || 0,
       status: row?.status || APPROVAL_STATUSES.DRAFT,
-      manager: row?.manager
+      manager: (row?.manager || row?.ceo)
         ? {
-            id: row.manager._id,
-            name: row.manager.name,
-            email: row.manager.email,
+            id: (row.manager || row.ceo)._id,
+            name: (row.manager || row.ceo).name,
+            email: (row.manager || row.ceo).email,
           }
         : null,
     };
@@ -359,6 +371,22 @@ const getSubmissionStatusByRange = async (req, res) => {
     periodStart: formatDateOnly(periodStart),
     periodEnd: formatDateOnly(periodEnd),
     statuses: statusRows,
+  });
+};
+
+const getLatestDispatchedPeriod = async (_req, res) => {
+  const latest = await Timesheet.findOne({ distributedAt: { $ne: null } })
+    .select('periodStart periodEnd distributedAt')
+    .sort({ distributedAt: -1, periodStart: -1 });
+
+  if (!latest) {
+    return res.status(404).json({ message: 'No dispatched period found yet.' });
+  }
+
+  return res.json({
+    periodStart: formatDateOnly(latest.periodStart),
+    periodEnd: formatDateOnly(latest.periodEnd),
+    distributedAt: latest.distributedAt,
   });
 };
 
@@ -527,6 +555,7 @@ module.exports = {
   saveTimesheetByDate,
   sendOutTimesheets,
   getSubmissionStatusByRange,
+  getLatestDispatchedPeriod,
   getAllSubmittedTimesheets,
   getRecentTimesheets,
   getManagerApprovalQueue,
