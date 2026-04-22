@@ -8,22 +8,40 @@ dotenv.config();
 
 const app = express();
 
+const normalizeOrigin = (value) => {
+  if (!value || typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim().replace(/\/+$/, '').toLowerCase();
+};
+
 const parseAllowedOrigins = () => {
-  const configured = process.env.CLIENT_URL || 'http://localhost:5173';
-  return configured.split(',').map((origin) => origin.trim()).filter(Boolean);
+  const configuredValues = [
+    process.env.CLIENT_URL,
+    process.env.CLIENT_URLS,
+    process.env.FRONTEND_URL,
+  ].filter(Boolean);
+
+  const joined = configuredValues.length > 0
+    ? configuredValues.join(',')
+    : 'http://localhost:5173';
+
+  return [...new Set(joined.split(',').map((origin) => normalizeOrigin(origin)).filter(Boolean))];
 };
 
 const allowedOrigins = parseAllowedOrigins();
+const allowAllCors = String(process.env.CORS_ALLOW_ALL || '').toLowerCase() === 'true';
 
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (allowAllCors || !origin || allowedOrigins.includes(normalizeOrigin(origin))) {
         callback(null, true);
         return;
       }
 
-      callback(new Error('Not allowed by CORS'));
+      callback(new Error(`Not allowed by CORS: ${origin}`));
     },
   })
 );
