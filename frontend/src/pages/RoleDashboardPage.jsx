@@ -8,6 +8,15 @@ import { formatRange, toISODate } from '../utils/date';
 
 const TYPE_OPTIONS = ['Regular Hours', 'Overtime', 'Half Day', 'Sick Leave', 'Vacation Leave', 'Off Day'];
 
+const STATUS_LABELS = {
+  draft: 'Draft',
+  pending_manager: 'Pending Manager',
+  manager_approved: 'Approved by Manager',
+  manager_rejected: 'Rejected by Manager',
+  hr_head_approved: 'Approved by HR Head',
+  hr_head_rejected: 'Rejected by HR Head',
+};
+
 const getUtcDay = (dateInput) => {
   const date = new Date(dateInput);
   return date.getUTCDay();
@@ -42,8 +51,7 @@ const enforceWeekendOffDay = (entries = []) => {
         ...entry,
         entryType: normalizedType,
         hours: normalizeHours(entry.hours, getDefaultHours(normalizedType)),
-        overtimeHours:
-          normalizedType === 'Overtime' ? normalizeHours(entry.overtimeHours, 0) : 0,
+        overtimeHours: normalizedType === 'Overtime' ? normalizeHours(entry.overtimeHours, 0) : 0,
       };
     }
 
@@ -56,6 +64,14 @@ const enforceWeekendOffDay = (entries = []) => {
   });
 };
 
+const ApprovalBadge = ({ status }) => {
+  return (
+    <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+      {STATUS_LABELS[status] || status || 'Draft'}
+    </span>
+  );
+};
+
 const StaffPanel = ({ user }) => {
   const [timesheet, setTimesheet] = useState(null);
   const [history, setHistory] = useState([]);
@@ -66,13 +82,10 @@ const StaffPanel = ({ user }) => {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState('');
 
-  const submittedTimesheets = useMemo(
-    () => history.filter((item) => Boolean(item.submittedAt)),
-    [history]
-  );
+  const submittedTimesheets = useMemo(() => history.filter((item) => Boolean(item.submittedAt)), [history]);
 
   const draftTimesheets = useMemo(
-    () => history.filter((item) => !item.submittedAt),
+    () => history.filter((item) => !item.submittedAt || item.status === 'manager_rejected'),
     [history]
   );
 
@@ -82,7 +95,7 @@ const StaffPanel = ({ user }) => {
     try {
       const recentResponse = await api.get('/timesheets/recent');
       const allTimesheets = recentResponse.data;
-      const drafts = allTimesheets.filter((item) => !item.submittedAt);
+      const drafts = allTimesheets.filter((item) => !item.submittedAt || item.status === 'manager_rejected');
       const submitted = allTimesheets.filter((item) => Boolean(item.submittedAt));
 
       setHistory(allTimesheets);
@@ -151,8 +164,7 @@ const StaffPanel = ({ user }) => {
           nextEntry.hours = normalizeHours(value, getDefaultHours(nextEntry.entryType));
         }
         if (field === 'overtimeHours') {
-          nextEntry.overtimeHours =
-            nextEntry.entryType === 'Overtime' ? normalizeHours(value, 0) : 0;
+          nextEntry.overtimeHours = nextEntry.entryType === 'Overtime' ? normalizeHours(value, 0) : 0;
         }
 
         return nextEntry;
@@ -177,7 +189,7 @@ const StaffPanel = ({ user }) => {
     }
 
     if (submit) {
-      const confirmed = window.confirm('Are you sure you want to submit this timesheet?');
+      const confirmed = window.confirm('Are you sure you want to submit this timesheet to your manager?');
       if (!confirmed) {
         return;
       }
@@ -198,7 +210,7 @@ const StaffPanel = ({ user }) => {
         entries: enforceWeekendOffDay(response.data.entries || []),
       });
 
-      setFeedback(submit ? 'Timesheet submitted successfully.' : 'Draft saved.');
+      setFeedback(submit ? 'Timesheet submitted to your manager.' : 'Draft saved.');
       await loadStaffData();
     } catch (error) {
       setFeedback(error.response?.data?.message || 'Unable to save timesheet');
@@ -287,6 +299,12 @@ const StaffPanel = ({ user }) => {
             <div>
               <h2 className="text-lg font-semibold text-slate-800">Assigned Bi-weekly Sheet</h2>
               <p className="text-sm text-slate-600">Current period: {currentPeriodLabel}</p>
+              <div className="mt-1">
+                <ApprovalBadge status={timesheet.status} />
+              </div>
+              {timesheet.managerComment ? (
+                <p className="mt-2 text-sm text-rose-700">Manager note: {timesheet.managerComment}</p>
+              ) : null}
             </div>
             <p className="rounded-lg bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
               Total Hours: {timesheet.totalHours?.toFixed(2) || '0.00'}
@@ -318,7 +336,7 @@ const StaffPanel = ({ user }) => {
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-slate-800">No Assigned Draft</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Wait for the dispatcher to send out the next pay period timesheet.
+            Wait for HR to send out the next pay period timesheet.
           </p>
           {feedback ? <p className="mt-3 text-sm text-slate-700">{feedback}</p> : null}
         </section>
@@ -329,10 +347,12 @@ const StaffPanel = ({ user }) => {
   );
 };
 
-const DispatcherPanel = ({ user }) => {
+const HRPanel = ({ user }) => {
   const [periodFrom, setPeriodFrom] = useState(toISODate(new Date()));
   const [periodTo, setPeriodTo] = useState(toISODate(new Date()));
   const [statusData, setStatusData] = useState(null);
+  const [pendingApprovals, setPendingApprovals] = useState([]);
+  const [viewingTimesheet, setViewingTimesheet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -340,13 +360,17 @@ const DispatcherPanel = ({ user }) => {
   const loadStatus = useCallback(async (fromValue, toValue) => {
     setLoading(true);
     try {
-      const response = await api.get('/timesheets/dispatch/status', {
-        params: {
-          from: fromValue,
-          to: toValue,
-        },
-      });
-      setStatusData(response.data);
+      const [statusResponse, hrReviewResponse] = await Promise.all([
+        api.get('/timesheets/dispatch/status', {
+          params: {
+            from: fromValue,
+            to: toValue,
+          },
+        }),
+        api.get('/timesheets/hr/pending'),
+      ]);
+      setStatusData(statusResponse.data);
+      setPendingApprovals(hrReviewResponse.data || []);
     } catch (error) {
       setFeedback(error.response?.data?.message || 'Unable to load submission status');
     } finally {
@@ -386,10 +410,10 @@ const DispatcherPanel = ({ user }) => {
       <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-800">Dispatcher Panel</h1>
+            <h1 className="text-2xl font-semibold text-slate-800">HR Dispatch Panel</h1>
             <p className="text-sm text-slate-600">{user.name} ({user.email})</p>
           </div>
-          <p className="rounded-lg bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700">Role: dispatcher</p>
+          <p className="rounded-lg bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700">Role: hr</p>
         </div>
 
         <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -435,9 +459,7 @@ const DispatcherPanel = ({ user }) => {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-800">Submission Tracking</h2>
         {statusData ? (
-          <p className="mt-1 text-sm text-slate-600">
-            Period: {formatRange(statusData.periodStart, statusData.periodEnd)}
-          </p>
+          <p className="mt-1 text-sm text-slate-600">Period: {formatRange(statusData.periodStart, statusData.periodEnd)}</p>
         ) : null}
 
         {loading ? (
@@ -448,9 +470,10 @@ const DispatcherPanel = ({ user }) => {
               <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
                 <tr>
                   <th className="px-3 py-2">Staff</th>
-                  <th className="px-3 py-2">Email</th>
+                  <th className="px-3 py-2">Manager</th>
                   <th className="px-3 py-2">Assigned</th>
                   <th className="px-3 py-2">Submitted</th>
+                  <th className="px-3 py-2">Workflow Status</th>
                   <th className="px-3 py-2">Submitted At</th>
                 </tr>
               </thead>
@@ -458,9 +481,10 @@ const DispatcherPanel = ({ user }) => {
                 {statusData.statuses.map((row) => (
                   <tr key={row.user.id} className="border-t border-slate-100 text-slate-700">
                     <td className="px-3 py-2">{row.user.name}</td>
-                    <td className="px-3 py-2">{row.user.email}</td>
+                    <td className="px-3 py-2">{row.manager?.name || '-'}</td>
                     <td className="px-3 py-2">{row.assigned ? 'Yes' : 'No'}</td>
                     <td className="px-3 py-2">{row.submitted ? 'Yes' : 'No'}</td>
+                    <td className="px-3 py-2">{STATUS_LABELS[row.status] || row.status || '-'}</td>
                     <td className="px-3 py-2">
                       {row.submittedAt ? dayjs(row.submittedAt).format('MMM D, YYYY h:mm A') : '-'}
                     </td>
@@ -473,6 +497,265 @@ const DispatcherPanel = ({ user }) => {
           <p className="mt-3 text-sm text-slate-600">No staff status found for this period.</p>
         )}
       </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">Manager-Approved Queue</h2>
+        <p className="mt-1 text-sm text-slate-600">These are waiting for HR Head review.</p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+              <tr>
+                <th className="px-3 py-2">Staff</th>
+                <th className="px-3 py-2">Manager</th>
+                <th className="px-3 py-2">Period</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">View</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingApprovals.map((item) => (
+                <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                  <td className="px-3 py-2">{item.user?.name || '-'}</td>
+                  <td className="px-3 py-2">{item.manager?.name || '-'}</td>
+                  <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
+                  <td className="px-3 py-2">{STATUS_LABELS[item.status] || item.status}</td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => setViewingTimesheet(item)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                    >
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <SubmittedTimesheetModal timesheet={viewingTimesheet} onClose={() => setViewingTimesheet(null)} />
+    </>
+  );
+};
+
+const ManagerPanel = ({ user }) => {
+  const [queue, setQueue] = useState([]);
+  const [viewingTimesheet, setViewingTimesheet] = useState(null);
+  const [reviewingId, setReviewingId] = useState('');
+  const [feedback, setFeedback] = useState('');
+
+  const loadQueue = useCallback(async () => {
+    try {
+      const response = await api.get('/timesheets/manager/pending');
+      setQueue(response.data || []);
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to load manager queue');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadQueue();
+  }, [loadQueue]);
+
+  const review = async (id, decision) => {
+    const comment = window.prompt(`Optional note for ${decision}:`) || '';
+    setReviewingId(id);
+    setFeedback('');
+
+    try {
+      await api.post(`/timesheets/manager/review/${id}`, { decision, comment });
+      setFeedback(`Timesheet ${decision}d successfully.`);
+      await loadQueue();
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to review timesheet');
+    } finally {
+      setReviewingId('');
+    }
+  };
+
+  return (
+    <>
+      <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-800">Manager Approval Panel</h1>
+            <p className="text-sm text-slate-600">{user.name} ({user.email})</p>
+          </div>
+          <p className="rounded-lg bg-indigo-50 px-3 py-1 text-sm font-medium text-indigo-700">Role: manager</p>
+        </div>
+      </header>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">Pending Staff Approvals</h2>
+        {feedback ? <p className="mt-2 text-sm text-slate-700">{feedback}</p> : null}
+
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+              <tr>
+                <th className="px-3 py-2">Staff</th>
+                <th className="px-3 py-2">Period</th>
+                <th className="px-3 py-2">Submitted At</th>
+                <th className="px-3 py-2">Total Hours</th>
+                <th className="px-3 py-2">View</th>
+                <th className="px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {queue.map((item) => (
+                <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                  <td className="px-3 py-2">{item.user?.name || '-'}</td>
+                  <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
+                  <td className="px-3 py-2">
+                    {item.submittedAt ? dayjs(item.submittedAt).format('MMM D, YYYY h:mm A') : '-'}
+                  </td>
+                  <td className="px-3 py-2">{Number(item.totalHours || 0).toFixed(2)}</td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => setViewingTimesheet(item)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                    >
+                      View
+                    </button>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => review(item.id, 'approve')}
+                        disabled={reviewingId === item.id}
+                        className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => review(item.id, 'reject')}
+                        disabled={reviewingId === item.id}
+                        className="rounded-lg bg-rose-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <SubmittedTimesheetModal timesheet={viewingTimesheet} onClose={() => setViewingTimesheet(null)} />
+    </>
+  );
+};
+
+const HRHeadPanel = ({ user }) => {
+  const [queue, setQueue] = useState([]);
+  const [viewingTimesheet, setViewingTimesheet] = useState(null);
+  const [reviewingId, setReviewingId] = useState('');
+  const [feedback, setFeedback] = useState('');
+
+  const loadQueue = useCallback(async () => {
+    try {
+      const response = await api.get('/timesheets/hr-head/pending');
+      setQueue(response.data || []);
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to load HR Head queue');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadQueue();
+  }, [loadQueue]);
+
+  const review = async (id, decision) => {
+    const comment = window.prompt(`Optional note for ${decision}:`) || '';
+    setReviewingId(id);
+    setFeedback('');
+
+    try {
+      await api.post(`/timesheets/hr-head/review/${id}`, { decision, comment });
+      setFeedback(`Timesheet ${decision}d by HR Head.`);
+      await loadQueue();
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to review timesheet');
+    } finally {
+      setReviewingId('');
+    }
+  };
+
+  return (
+    <>
+      <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-800">HR Head Review Panel</h1>
+            <p className="text-sm text-slate-600">{user.name} ({user.email})</p>
+          </div>
+          <p className="rounded-lg bg-fuchsia-50 px-3 py-1 text-sm font-medium text-fuchsia-700">Role: hr_head</p>
+        </div>
+      </header>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">Manager-Approved Timesheets</h2>
+        <p className="mt-1 text-sm text-slate-600">Review and approve for payroll processing.</p>
+        {feedback ? <p className="mt-2 text-sm text-slate-700">{feedback}</p> : null}
+
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+              <tr>
+                <th className="px-3 py-2">Staff</th>
+                <th className="px-3 py-2">Manager</th>
+                <th className="px-3 py-2">Period</th>
+                <th className="px-3 py-2">Manager Review</th>
+                <th className="px-3 py-2">View</th>
+                <th className="px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {queue.map((item) => (
+                <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                  <td className="px-3 py-2">{item.user?.name || '-'}</td>
+                  <td className="px-3 py-2">{item.manager?.name || '-'}</td>
+                  <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
+                  <td className="px-3 py-2">
+                    {item.managerReviewedAt ? dayjs(item.managerReviewedAt).format('MMM D, YYYY h:mm A') : '-'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => setViewingTimesheet(item)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                    >
+                      View
+                    </button>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => review(item.id, 'approve')}
+                        disabled={reviewingId === item.id}
+                        className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => review(item.id, 'reject')}
+                        disabled={reviewingId === item.id}
+                        className="rounded-lg bg-rose-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <SubmittedTimesheetModal timesheet={viewingTimesheet} onClose={() => setViewingTimesheet(null)} />
     </>
   );
 };
@@ -567,6 +850,7 @@ const AdminPanel = ({ user }) => {
                   <tr>
                     <th className="px-3 py-2">Staff</th>
                     <th className="px-3 py-2">Period</th>
+                    <th className="px-3 py-2">Workflow Status</th>
                     <th className="px-3 py-2">Total Hours</th>
                     <th className="px-3 py-2">Submitted At</th>
                     <th className="px-3 py-2">View</th>
@@ -577,6 +861,7 @@ const AdminPanel = ({ user }) => {
                     <tr key={item.id} className="border-t border-slate-100 text-slate-700">
                       <td className="px-3 py-2">{item.user?.name || 'Unknown User'}</td>
                       <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
+                      <td className="px-3 py-2">{STATUS_LABELS[item.status] || item.status || '-'}</td>
                       <td className="px-3 py-2">{Number(item.totalHours || 0).toFixed(2)}</td>
                       <td className="px-3 py-2">
                         {item.submittedAt ? dayjs(item.submittedAt).format('MMM D, YYYY h:mm A') : '-'}
@@ -598,16 +883,16 @@ const AdminPanel = ({ user }) => {
             <div className="mt-6 overflow-x-auto">
               <h3 className="text-base font-semibold text-slate-800">Submission Status by Pay Period</h3>
               {statusData ? (
-                <p className="mt-1 text-sm text-slate-600">
-                  Period: {formatRange(statusData.periodStart, statusData.periodEnd)}
-                </p>
+                <p className="mt-1 text-sm text-slate-600">Period: {formatRange(statusData.periodStart, statusData.periodEnd)}</p>
               ) : null}
               <table className="mt-2 min-w-full text-sm">
                 <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
                   <tr>
                     <th className="px-3 py-2">Staff</th>
+                    <th className="px-3 py-2">Manager</th>
                     <th className="px-3 py-2">Assigned</th>
                     <th className="px-3 py-2">Submitted</th>
+                    <th className="px-3 py-2">Workflow Status</th>
                     <th className="px-3 py-2">Submitted At</th>
                   </tr>
                 </thead>
@@ -615,8 +900,10 @@ const AdminPanel = ({ user }) => {
                   {(statusData?.statuses || []).map((row) => (
                     <tr key={`status-${row.user.id}`} className="border-t border-slate-100 text-slate-700">
                       <td className="px-3 py-2">{row.user.name}</td>
+                      <td className="px-3 py-2">{row.manager?.name || '-'}</td>
                       <td className="px-3 py-2">{row.assigned ? 'Yes' : 'No'}</td>
                       <td className="px-3 py-2">{row.submitted ? 'Yes' : 'No'}</td>
+                      <td className="px-3 py-2">{STATUS_LABELS[row.status] || row.status || '-'}</td>
                       <td className="px-3 py-2">
                         {row.submittedAt ? dayjs(row.submittedAt).format('MMM D, YYYY h:mm A') : '-'}
                       </td>
@@ -650,7 +937,9 @@ const RoleDashboardPage = () => {
         </div>
 
         {user?.role === 'admin' ? <AdminPanel user={user} /> : null}
-        {user?.role === 'dispatcher' ? <DispatcherPanel user={user} /> : null}
+        {user?.role === 'hr' ? <HRPanel user={user} /> : null}
+        {user?.role === 'manager' ? <ManagerPanel user={user} /> : null}
+        {user?.role === 'hr_head' ? <HRHeadPanel user={user} /> : null}
         {user?.role === 'staff' ? <StaffPanel user={user} /> : null}
       </div>
     </div>

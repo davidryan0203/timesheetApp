@@ -10,13 +10,30 @@ const {
 } = require('../utils/timesheet');
 const { sendTimesheetAssignedEmail } = require('../utils/mailer');
 
+const APPROVAL_STATUSES = {
+  DRAFT: 'draft',
+  PENDING_MANAGER: 'pending_manager',
+  MANAGER_APPROVED: 'manager_approved',
+  MANAGER_REJECTED: 'manager_rejected',
+  HR_HEAD_APPROVED: 'hr_head_approved',
+  HR_HEAD_REJECTED: 'hr_head_rejected',
+};
+
 const formatDateOnly = (dateInput) => {
   return new Date(dateInput).toISOString().split('T')[0];
+};
+
+const canonicalizeRole = (role) => {
+  if (role === 'dispatcher') {
+    return 'hr';
+  }
+  return role;
 };
 
 const mapResponse = (timesheetDoc) => {
   const json = timesheetDoc.toObject();
   const hasUser = json.user && typeof json.user === 'object' && json.user._id;
+  const hasManager = json.manager && typeof json.manager === 'object' && json.manager._id;
 
   return {
     id: json._id,
@@ -25,7 +42,14 @@ const mapResponse = (timesheetDoc) => {
           id: json.user._id,
           name: json.user.name,
           email: json.user.email,
-          role: json.user.role,
+          role: canonicalizeRole(json.user.role),
+        }
+      : undefined,
+    manager: hasManager
+      ? {
+          id: json.manager._id,
+          name: json.manager.name,
+          email: json.manager.email,
         }
       : undefined,
     periodStart: json.periodStart,
@@ -38,6 +62,11 @@ const mapResponse = (timesheetDoc) => {
     totalHours: json.totalHours,
     submittedAt: json.submittedAt,
     distributedAt: json.distributedAt,
+    status: json.status || APPROVAL_STATUSES.DRAFT,
+    managerReviewedAt: json.managerReviewedAt,
+    managerComment: json.managerComment,
+    hrHeadReviewedAt: json.hrHeadReviewedAt,
+    hrHeadComment: json.hrHeadComment,
   };
 };
 
@@ -79,7 +108,13 @@ const saveTimesheetByDate = async (req, res) => {
     });
   }
 
-  if (existing?.submittedAt) {
+  if (
+    [
+      APPROVAL_STATUSES.PENDING_MANAGER,
+      APPROVAL_STATUSES.MANAGER_APPROVED,
+      APPROVAL_STATUSES.HR_HEAD_APPROVED,
+    ].includes(existing?.status)
+  ) {
     return res.status(409).json({
       message: 'This pay period is already submitted and cannot be edited or re-submitted.',
     });
@@ -101,9 +136,24 @@ const saveTimesheetByDate = async (req, res) => {
       customTypes,
       totalHours,
       submittedAt: req.body.submit ? new Date() : null,
+      status: APPROVAL_STATUSES.DRAFT,
     },
     { new: true }
   );
+
+  if (req.body.submit) {
+    const staffUser = await User.findById(req.user.id).select('manager');
+    if (!staffUser?.manager) {
+      return res.status(400).json({
+        message: 'No manager is assigned to your account. Please contact admin.',
+      });
+    }
+
+    timesheet.submittedAt = new Date();
+    timesheet.status = APPROVAL_STATUSES.PENDING_MANAGER;
+    timesheet.manager = staffUser.manager;
+    await timesheet.save();
+  }
 
   return res.json(mapResponse(timesheet));
 };
@@ -137,7 +187,7 @@ const sendOutTimesheets = async (req, res) => {
     });
   }
 
-  const staffUsers = await User.find({ role: 'staff' }).select('_id name email role');
+  const staffUsers = await User.find({ role: 'staff' }).select('_id name email role manager');
 
   if (staffUsers.length === 0) {
     return res.status(400).json({ message: 'No staff users found to assign timesheets.' });
@@ -172,6 +222,10 @@ const sendOutTimesheets = async (req, res) => {
       customTypes: ['Regular Hours', 'Overtime', 'Half Day', 'Sick Leave', 'Vacation Leave'],
       totalHours: sumHours(entries),
       submittedAt: null,
+      status: APPROVAL_STATUSES.DRAFT,
+      manager: staff.manager || null,
+      managerComment: '',
+      hrHeadComment: '',
     });
 
     try {
@@ -225,7 +279,9 @@ const getSubmissionStatusByRange = async (req, res) => {
   }
 
   const staffUsers = await User.find({ role: 'staff' }).select('_id name email');
-  const timesheets = await Timesheet.find({ periodStart, periodEnd }).select('user submittedAt distributedAt totalHours');
+  const timesheets = await Timesheet.find({ periodStart, periodEnd })
+    .populate('manager', 'name email')
+    .select('user submittedAt distributedAt totalHours status manager');
   const mapByUserId = new Map(timesheets.map((item) => [String(item.user), item]));
 
   const statusRows = staffUsers.map((staff) => {
@@ -240,6 +296,14 @@ const getSubmissionStatusByRange = async (req, res) => {
       submitted: Boolean(row?.submittedAt),
       submittedAt: row?.submittedAt || null,
       totalHours: row?.totalHours || 0,
+      status: row?.status || APPROVAL_STATUSES.DRAFT,
+      manager: row?.manager
+        ? {
+            id: row.manager._id,
+            name: row.manager.name,
+            email: row.manager.email,
+          }
+        : null,
     };
   });
 
@@ -253,6 +317,7 @@ const getSubmissionStatusByRange = async (req, res) => {
 const getAllSubmittedTimesheets = async (req, res) => {
   const timesheets = await Timesheet.find({ submittedAt: { $ne: null } })
     .populate('user', 'name email role')
+    .populate('manager', 'name email')
     .sort({ submittedAt: -1 })
     .limit(100);
 
@@ -261,10 +326,99 @@ const getAllSubmittedTimesheets = async (req, res) => {
 
 const getRecentTimesheets = async (req, res) => {
   const timesheets = await Timesheet.find({ user: req.user.id })
+    .populate('manager', 'name email')
     .sort({ periodStart: -1 })
     .limit(24);
 
   return res.json(timesheets.map(mapResponse));
+};
+
+const getManagerApprovalQueue = async (req, res) => {
+  const timesheets = await Timesheet.find({ manager: req.user.id, status: APPROVAL_STATUSES.PENDING_MANAGER })
+    .populate('user', 'name email role')
+    .populate('manager', 'name email')
+    .sort({ submittedAt: -1 })
+    .limit(100);
+
+  return res.json(timesheets.map(mapResponse));
+};
+
+const managerReviewTimesheet = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+  }
+
+  const { id } = req.params;
+  const { decision, comment } = req.body;
+
+  const timesheet = await Timesheet.findById(id).populate('user', 'name email role').populate('manager', 'name email');
+  if (!timesheet) {
+    return res.status(404).json({ message: 'Timesheet not found' });
+  }
+
+  if (String(timesheet.manager?._id || timesheet.manager) !== String(req.user.id)) {
+    return res.status(403).json({ message: 'You can only review timesheets assigned to you' });
+  }
+
+  if (timesheet.status !== APPROVAL_STATUSES.PENDING_MANAGER) {
+    return res.status(409).json({ message: 'Timesheet is not pending manager approval' });
+  }
+
+  timesheet.status =
+    decision === 'approve' ? APPROVAL_STATUSES.MANAGER_APPROVED : APPROVAL_STATUSES.MANAGER_REJECTED;
+  timesheet.managerReviewedAt = new Date();
+  timesheet.managerComment = typeof comment === 'string' ? comment.trim() : '';
+
+  await timesheet.save();
+  return res.json(mapResponse(timesheet));
+};
+
+const getHrReviewQueue = async (_req, res) => {
+  const timesheets = await Timesheet.find({ status: APPROVAL_STATUSES.MANAGER_APPROVED })
+    .populate('user', 'name email role')
+    .populate('manager', 'name email')
+    .sort({ managerReviewedAt: -1 })
+    .limit(100);
+
+  return res.json(timesheets.map(mapResponse));
+};
+
+const getHrHeadReviewQueue = async (_req, res) => {
+  const timesheets = await Timesheet.find({ status: APPROVAL_STATUSES.MANAGER_APPROVED })
+    .populate('user', 'name email role')
+    .populate('manager', 'name email')
+    .sort({ managerReviewedAt: -1 })
+    .limit(100);
+
+  return res.json(timesheets.map(mapResponse));
+};
+
+const hrHeadReviewTimesheet = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+  }
+
+  const { id } = req.params;
+  const { decision, comment } = req.body;
+
+  const timesheet = await Timesheet.findById(id).populate('user', 'name email role').populate('manager', 'name email');
+  if (!timesheet) {
+    return res.status(404).json({ message: 'Timesheet not found' });
+  }
+
+  if (timesheet.status !== APPROVAL_STATUSES.MANAGER_APPROVED) {
+    return res.status(409).json({ message: 'Timesheet is not ready for HR Head review' });
+  }
+
+  timesheet.status =
+    decision === 'approve' ? APPROVAL_STATUSES.HR_HEAD_APPROVED : APPROVAL_STATUSES.HR_HEAD_REJECTED;
+  timesheet.hrHeadReviewedAt = new Date();
+  timesheet.hrHeadComment = typeof comment === 'string' ? comment.trim() : '';
+
+  await timesheet.save();
+  return res.json(mapResponse(timesheet));
 };
 
 module.exports = {
@@ -274,4 +428,9 @@ module.exports = {
   getSubmissionStatusByRange,
   getAllSubmittedTimesheets,
   getRecentTimesheets,
+  getManagerApprovalQueue,
+  managerReviewTimesheet,
+  getHrReviewQueue,
+  getHrHeadReviewQueue,
+  hrHeadReviewTimesheet,
 };

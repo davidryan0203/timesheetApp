@@ -58,7 +58,7 @@ const sendTimesheetAssignedEmail = async ({ toEmail, toName, periodStart, period
   const fromLabel = process.env.SMTP_FROM_NAME || 'Timesheet App';
   const periodLabel = `${periodStart} to ${periodEnd}`;
   const receiverName = toName || 'Team Member';
-  const senderName = dispatcherName || 'Dispatcher';
+  const senderName = dispatcherName || 'HR';
   const dashboardUrl = process.env.CLIENT_URL || 'http://localhost:5173';
   const logoPath = getReadableLogoPath();
   const logoCid = 'timesheet-logo';
@@ -121,7 +121,7 @@ const sendTimesheetAssignedEmail = async ({ toEmail, toName, periodStart, period
             </table>
 
             <p style="margin:0; font-size:13px; color:#64748b; line-height:1.6;">
-              Please submit your timesheet as soon as possible. If this assignment looks incorrect, contact your dispatcher.
+              Please submit your timesheet as soon as possible. If this assignment looks incorrect, contact HR.
             </p>
           </td>
         </tr>

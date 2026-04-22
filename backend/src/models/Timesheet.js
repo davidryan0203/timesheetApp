@@ -72,6 +72,36 @@ const timesheetSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    status: {
+      type: String,
+      enum: ['draft', 'pending_manager', 'manager_approved', 'manager_rejected', 'hr_head_approved', 'hr_head_rejected'],
+      default: 'draft',
+      index: true,
+    },
+    manager: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
+    managerReviewedAt: {
+      type: Date,
+      default: null,
+    },
+    managerComment: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    hrHeadReviewedAt: {
+      type: Date,
+      default: null,
+    },
+    hrHeadComment: {
+      type: String,
+      default: '',
+      trim: true,
+    },
   },
   {
     timestamps: true,

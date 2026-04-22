@@ -1,6 +1,15 @@
 import dayjs from 'dayjs';
 import { formatRange } from '../utils/date';
 
+const STATUS_LABELS = {
+  draft: 'Draft',
+  pending_manager: 'Pending Manager',
+  manager_approved: 'Approved by Manager',
+  manager_rejected: 'Rejected by Manager',
+  hr_head_approved: 'Approved by HR Head',
+  hr_head_rejected: 'Rejected by HR Head',
+};
+
 const SubmittedTimesheetModal = ({ timesheet, onClose }) => {
   if (!timesheet) {
     return null;
@@ -23,6 +32,15 @@ const SubmittedTimesheetModal = ({ timesheet, onClose }) => {
             <p className="text-sm text-slate-600">
               Submitted: {timesheet.submittedAt ? dayjs(timesheet.submittedAt).format('MMM D, YYYY h:mm A') : 'Draft'}
             </p>
+            <p className="text-sm text-slate-600">
+              Status: {STATUS_LABELS[timesheet.status] || timesheet.status || 'Draft'}
+            </p>
+            {timesheet.managerComment ? (
+              <p className="text-sm text-slate-600">Manager Note: {timesheet.managerComment}</p>
+            ) : null}
+            {timesheet.hrHeadComment ? (
+              <p className="text-sm text-slate-600">HR Head Note: {timesheet.hrHeadComment}</p>
+            ) : null}
           </div>
           <button
             onClick={onClose}

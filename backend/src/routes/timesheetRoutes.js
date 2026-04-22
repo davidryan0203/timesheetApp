@@ -7,6 +7,11 @@ const {
   getSubmissionStatusByRange,
   getAllSubmittedTimesheets,
   getRecentTimesheets,
+  getManagerApprovalQueue,
+  managerReviewTimesheet,
+  getHrReviewQueue,
+  getHrHeadReviewQueue,
+  hrHeadReviewTimesheet,
 } = require('../controllers/timesheetController');
 const authMiddleware = require('../middleware/authMiddleware');
 const requireRoles = require('../middleware/roleMiddleware');
@@ -39,7 +44,7 @@ router.post(
 
 router.post(
   '/dispatch/send-out',
-  requireRoles('dispatcher'),
+  requireRoles('hr'),
   [
     body('periodFrom').isISO8601().withMessage('periodFrom must be a valid date'),
     body('periodTo').isISO8601().withMessage('periodTo must be a valid date'),
@@ -47,7 +52,28 @@ router.post(
   sendOutTimesheets
 );
 
-router.get('/dispatch/status', requireRoles('dispatcher', 'admin'), getSubmissionStatusByRange);
+router.get('/dispatch/status', requireRoles('hr', 'admin'), getSubmissionStatusByRange);
+router.get('/manager/pending', requireRoles('manager'), getManagerApprovalQueue);
+router.post(
+  '/manager/review/:id',
+  requireRoles('manager'),
+  [
+    body('decision').isIn(['approve', 'reject']).withMessage('decision must be approve or reject'),
+    body('comment').optional().isString().withMessage('comment must be text'),
+  ],
+  managerReviewTimesheet
+);
+router.get('/hr/pending', requireRoles('hr', 'admin'), getHrReviewQueue);
+router.get('/hr-head/pending', requireRoles('hr_head'), getHrHeadReviewQueue);
+router.post(
+  '/hr-head/review/:id',
+  requireRoles('hr_head'),
+  [
+    body('decision').isIn(['approve', 'reject']).withMessage('decision must be approve or reject'),
+    body('comment').optional().isString().withMessage('comment must be text'),
+  ],
+  hrHeadReviewTimesheet
+);
 router.get('/admin/submitted', requireRoles('admin'), getAllSubmittedTimesheets);
 
 module.exports = router;

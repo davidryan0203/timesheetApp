@@ -1,12 +1,31 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { register, login, me } = require('../controllers/authController');
+const { register, login, me, listManagers } = require('../controllers/authController');
 const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
+const normalizeRegisterBody = (req, _res, next) => {
+  const nestedPayload = req.body?.name;
+  if (!nestedPayload || typeof nestedPayload !== 'object' || Array.isArray(nestedPayload)) {
+    return next();
+  }
+
+  req.body = {
+    ...req.body,
+    name: typeof req.body.name === 'string' ? req.body.name : nestedPayload.name,
+    email: req.body.email || nestedPayload.email,
+    password: req.body.password || nestedPayload.password,
+    role: req.body.role || nestedPayload.role,
+    managerId: req.body.managerId || nestedPayload.managerId || nestedPayload.manager || nestedPayload.assignedManagerId,
+  };
+
+  return next();
+};
+
 router.post(
   '/register',
+  normalizeRegisterBody,
   [
     body('name').trim().notEmpty().withMessage('Name is required'),
     body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
@@ -15,8 +34,20 @@ router.post(
       .withMessage('Password must be at least 6 characters long'),
     body('role')
       .optional()
-      .isIn(['admin', 'dispatcher', 'staff'])
-      .withMessage('Role must be admin, dispatcher, or staff'),
+      .isIn(['admin', 'hr', 'manager', 'staff', 'hr_head'])
+      .withMessage('Role must be admin, hr, manager, staff, or hr_head'),
+    body('managerId')
+      .optional({ values: 'falsy' })
+      .isMongoId()
+      .withMessage('managerId must be a valid user id'),
+    body('manager')
+      .optional({ values: 'falsy' })
+      .isMongoId()
+      .withMessage('manager must be a valid user id'),
+    body('assignedManagerId')
+      .optional({ values: 'falsy' })
+      .isMongoId()
+      .withMessage('assignedManagerId must be a valid user id'),
   ],
   register
 );
@@ -31,5 +62,6 @@ router.post(
 );
 
 router.get('/me', authMiddleware, me);
+router.get('/managers', listManagers);
 
 module.exports = router;
