@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/useAuth';
 import TimesheetTable from '../components/TimesheetTable';
@@ -72,7 +73,13 @@ const ApprovalBadge = ({ status }) => {
   );
 };
 
-const StaffPanel = ({ user }) => {
+const StaffPanel = ({
+  user,
+  panelTitle = 'Staff Timesheet',
+  roleLabel = 'staff',
+  submitTargetLabel = 'manager',
+  loadErrorText = 'Unable to load staff timesheets',
+}) => {
   const [timesheet, setTimesheet] = useState(null);
   const [history, setHistory] = useState([]);
   const [selectedDraftId, setSelectedDraftId] = useState('');
@@ -110,11 +117,11 @@ const StaffPanel = ({ user }) => {
           : null
       );
     } catch (error) {
-      setFeedback(error.response?.data?.message || 'Unable to load staff timesheets');
+      setFeedback(error.response?.data?.message || loadErrorText);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadErrorText]);
 
   useEffect(() => {
     loadStaffData();
@@ -189,7 +196,7 @@ const StaffPanel = ({ user }) => {
     }
 
     if (submit) {
-      const confirmed = window.confirm('Are you sure you want to submit this timesheet to your manager?');
+      const confirmed = window.confirm(`Are you sure you want to submit this timesheet to ${submitTargetLabel}?`);
       if (!confirmed) {
         return;
       }
@@ -210,7 +217,7 @@ const StaffPanel = ({ user }) => {
         entries: enforceWeekendOffDay(response.data.entries || []),
       });
 
-      setFeedback(submit ? 'Timesheet submitted to your manager.' : 'Draft saved.');
+      setFeedback(submit ? `Timesheet submitted to ${submitTargetLabel}.` : 'Draft saved.');
       await loadStaffData();
     } catch (error) {
       setFeedback(error.response?.data?.message || 'Unable to save timesheet');
@@ -231,10 +238,10 @@ const StaffPanel = ({ user }) => {
       <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-800">Staff Timesheet</h1>
+            <h1 className="text-2xl font-semibold text-slate-800">{panelTitle}</h1>
             <p className="text-sm text-slate-600">{user.name} ({user.email})</p>
           </div>
-          <p className="rounded-lg bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">Role: staff</p>
+          <p className="rounded-lg bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">Role: {roleLabel}</p>
         </div>
 
         <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -576,6 +583,14 @@ const ManagerPanel = ({ user }) => {
 
   return (
     <>
+      <StaffPanel
+        user={user}
+        panelTitle="Manager Timesheet"
+        roleLabel="manager"
+        submitTargetLabel="HR Head"
+        loadErrorText="Unable to load manager timesheets"
+      />
+
       <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -769,6 +784,77 @@ const AdminPanel = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
 
+  const printTimesheet = (timesheet) => {
+    if (!timesheet) {
+      return;
+    }
+
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1000,height=800');
+    if (!printWindow) {
+      setFeedback('Popup blocked. Please allow popups to print timesheets.');
+      return;
+    }
+
+    const rowsHtml = (timesheet.entries || [])
+      .map(
+        (entry) => `
+          <tr>
+            <td>${dayjs(entry.dateOnly || entry.date).format('MMM D, YYYY')}</td>
+            <td>${dayjs(entry.dateOnly || entry.date).format('ddd')}</td>
+            <td>${entry.entryType || 'Regular Hours'}</td>
+            <td>${Number(entry.hours || 0).toFixed(2)}</td>
+            <td>${Number(entry.overtimeHours || 0).toFixed(2)}</td>
+            <td>${entry.notes || '-'}</td>
+          </tr>
+        `
+      )
+      .join('');
+
+    const html = `
+      <html>
+        <head>
+          <title>Timesheet Print</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
+            h1 { margin: 0 0 8px; }
+            .meta { margin: 0 0 4px; font-size: 14px; color: #334155; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-size: 12px; }
+            th { background: #f1f5f9; }
+            .total { margin-top: 12px; font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <h1>Submitted Timesheet</h1>
+          <p class="meta">Staff: ${timesheet.user?.name || 'Unknown'} (${timesheet.user?.email || '-'})</p>
+          <p class="meta">Period: ${formatRange(timesheet.periodStart, timesheet.periodEnd)}</p>
+          <p class="meta">Submitted: ${
+            timesheet.submittedAt ? dayjs(timesheet.submittedAt).format('MMM D, YYYY h:mm A') : '-'
+          }</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Day</th>
+                <th>Type</th>
+                <th>Hours</th>
+                <th>Overtime</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+          <p class="total">Total Hours: ${Number(timesheet.totalHours || 0).toFixed(2)}</p>
+          <script>window.print();</script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
   const loadAdminData = useCallback(async (fromValue, toValue) => {
     setLoading(true);
     setFeedback('');
@@ -804,7 +890,15 @@ const AdminPanel = ({ user }) => {
             <h1 className="text-2xl font-semibold text-slate-800">Administrator Panel</h1>
             <p className="text-sm text-slate-600">{user.name} ({user.email})</p>
           </div>
-          <p className="rounded-lg bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">Role: admin</p>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/settings/users"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700"
+            >
+              Settings: Create User
+            </Link>
+            <p className="rounded-lg bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">Role: admin</p>
+          </div>
         </div>
       </header>
 
@@ -854,6 +948,7 @@ const AdminPanel = ({ user }) => {
                     <th className="px-3 py-2">Total Hours</th>
                     <th className="px-3 py-2">Submitted At</th>
                     <th className="px-3 py-2">View</th>
+                    <th className="px-3 py-2">Print</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -872,6 +967,14 @@ const AdminPanel = ({ user }) => {
                           className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
                         >
                           View
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          onClick={() => printTimesheet(item)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                        >
+                          Print
                         </button>
                       </td>
                     </tr>

@@ -1,7 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 
-const ProtectedRoute = ({ children }) => {
+const ProtectedRoute = ({ children, allowedRoles }) => {
 	const { user, loading } = useAuth();
 
 	if (loading) {
@@ -10,6 +10,10 @@ const ProtectedRoute = ({ children }) => {
 
 	if (!user) {
 		return <Navigate to="/login" replace />;
+	}
+
+	if (Array.isArray(allowedRoles) && allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
+		return <Navigate to="/" replace />;
 	}
 
 	return children;

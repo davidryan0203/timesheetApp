@@ -23,31 +23,45 @@ const signToken = (user) => {
   );
 };
 
+const resolveRoleAndManager = async (inputBody) => {
+  const { role } = inputBody;
+  const managerIdRaw = inputBody.managerId || inputBody.manager || inputBody.assignedManagerId;
+  const managerId = typeof managerIdRaw === 'string' ? managerIdRaw.trim() : managerIdRaw;
+  const normalizedRole = canonicalizeRole(role || 'staff');
+
+  if (normalizedRole === 'staff') {
+    if (!managerId) {
+      return { error: 'Staff users must have a manager assigned' };
+    }
+
+    const manager = await User.findOne({ _id: managerId, role: { $in: ['manager'] } });
+    if (!manager) {
+      return { error: 'Assigned manager does not exist' };
+    }
+  }
+
+  return {
+    normalizedRole,
+    managerId,
+  };
+};
+
 const register = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
   }
 
-  const { name, email, password, role } = req.body;
-  const managerIdRaw = req.body.managerId || req.body.manager || req.body.assignedManagerId;
-  const managerId = typeof managerIdRaw === 'string' ? managerIdRaw.trim() : managerIdRaw;
-  const normalizedRole = canonicalizeRole(role || 'staff');
+  const { name, email, password } = req.body;
 
   const existingUser = await User.findOne({ email });
   if (existingUser) {
     return res.status(409).json({ message: 'Email already in use' });
   }
 
-  if (normalizedRole === 'staff') {
-    if (!managerId) {
-      return res.status(400).json({ message: 'Staff users must have a manager assigned' });
-    }
-
-    const manager = await User.findOne({ _id: managerId, role: { $in: ['manager'] } });
-    if (!manager) {
-      return res.status(400).json({ message: 'Assigned manager does not exist' });
-    }
+  const roleInfo = await resolveRoleAndManager(req.body);
+  if (roleInfo.error) {
+    return res.status(400).json({ message: roleInfo.error });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
@@ -55,14 +69,53 @@ const register = async (req, res) => {
     name,
     email,
     password: passwordHash,
-    role: normalizedRole,
-    manager: normalizedRole === 'staff' ? managerId : null,
+    role: roleInfo.normalizedRole,
+    manager: roleInfo.normalizedRole === 'staff' ? roleInfo.managerId : null,
   });
 
   const token = signToken(user);
 
   return res.status(201).json({
     token,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: canonicalizeRole(user.role),
+      manager: user.manager,
+    },
+  });
+};
+
+const createUserByAdmin = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+  }
+
+  const { name, email, password } = req.body;
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    return res.status(409).json({ message: 'Email already in use' });
+  }
+
+  const roleInfo = await resolveRoleAndManager(req.body);
+  if (roleInfo.error) {
+    return res.status(400).json({ message: roleInfo.error });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const user = await User.create({
+    name,
+    email,
+    password: passwordHash,
+    role: roleInfo.normalizedRole,
+    manager: roleInfo.normalizedRole === 'staff' ? roleInfo.managerId : null,
+  });
+
+  return res.status(201).json({
+    message: 'User account created successfully',
     user: {
       id: user._id,
       name: user.name,
@@ -132,4 +185,5 @@ module.exports = {
   login,
   me,
   listManagers,
+  createUserByAdmin,
 };

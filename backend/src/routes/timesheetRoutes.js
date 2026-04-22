@@ -20,11 +20,11 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
-router.get('/recent', requireRoles('staff'), getRecentTimesheets);
-router.get('/period/:date', requireRoles('staff'), getTimesheetByDate);
+router.get('/recent', requireRoles('staff', 'manager'), getRecentTimesheets);
+router.get('/period/:date', requireRoles('staff', 'manager'), getTimesheetByDate);
 router.post(
   '/period/:date',
-  requireRoles('staff'),
+  requireRoles('staff', 'manager'),
   [
     body('entries').isArray({ min: 1 }).withMessage('Entries must contain at least 1 row'),
     body('entries.*.date').notEmpty().withMessage('Each entry must have a date'),

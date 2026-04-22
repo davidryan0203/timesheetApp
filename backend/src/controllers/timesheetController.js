@@ -30,6 +30,8 @@ const canonicalizeRole = (role) => {
   return role;
 };
 
+const ASSIGNABLE_ROLES = ['staff', 'manager'];
+
 const mapResponse = (timesheetDoc) => {
   const json = timesheetDoc.toObject();
   const hasUser = json.user && typeof json.user === 'object' && json.user._id;
@@ -142,17 +144,32 @@ const saveTimesheetByDate = async (req, res) => {
   );
 
   if (req.body.submit) {
-    const staffUser = await User.findById(req.user.id).select('manager');
-    if (!staffUser?.manager) {
-      return res.status(400).json({
-        message: 'No manager is assigned to your account. Please contact admin.',
-      });
+    const currentUser = await User.findById(req.user.id).select('role manager');
+    if (!currentUser) {
+      return res.status(404).json({ message: 'User not found' });
     }
 
-    timesheet.submittedAt = new Date();
-    timesheet.status = APPROVAL_STATUSES.PENDING_MANAGER;
-    timesheet.manager = staffUser.manager;
-    await timesheet.save();
+    if (currentUser.role === 'manager') {
+      timesheet.submittedAt = new Date();
+      timesheet.status = APPROVAL_STATUSES.MANAGER_APPROVED;
+      timesheet.manager = currentUser._id;
+      timesheet.managerReviewedAt = new Date();
+      timesheet.managerComment = 'Auto-approved manager self timesheet';
+      await timesheet.save();
+    } else {
+      if (!currentUser.manager) {
+        return res.status(400).json({
+          message: 'No manager is assigned to your account. Please contact admin.',
+        });
+      }
+
+      timesheet.submittedAt = new Date();
+      timesheet.status = APPROVAL_STATUSES.PENDING_MANAGER;
+      timesheet.manager = currentUser.manager;
+      timesheet.managerReviewedAt = null;
+      timesheet.managerComment = '';
+      await timesheet.save();
+    }
   }
 
   return res.json(mapResponse(timesheet));
@@ -187,10 +204,10 @@ const sendOutTimesheets = async (req, res) => {
     });
   }
 
-  const staffUsers = await User.find({ role: 'staff' }).select('_id name email role manager');
+  const staffUsers = await User.find({ role: { $in: ASSIGNABLE_ROLES } }).select('_id name email role manager');
 
   if (staffUsers.length === 0) {
-    return res.status(400).json({ message: 'No staff users found to assign timesheets.' });
+    return res.status(400).json({ message: 'No staff or manager users found to assign timesheets.' });
   }
 
   let createdCount = 0;
@@ -278,7 +295,7 @@ const getSubmissionStatusByRange = async (req, res) => {
     return res.status(400).json({ message: 'From must be earlier than or equal to To.' });
   }
 
-  const staffUsers = await User.find({ role: 'staff' }).select('_id name email');
+  const staffUsers = await User.find({ role: { $in: ASSIGNABLE_ROLES } }).select('_id name email role');
   const timesheets = await Timesheet.find({ periodStart, periodEnd })
     .populate('manager', 'name email')
     .select('user submittedAt distributedAt totalHours status manager');
@@ -291,6 +308,7 @@ const getSubmissionStatusByRange = async (req, res) => {
         id: staff._id,
         name: staff.name,
         email: staff.email,
+        role: canonicalizeRole(staff.role),
       },
       assigned: Boolean(row),
       submitted: Boolean(row?.submittedAt),

@@ -3,6 +3,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import RoleDashboardPage from './pages/RoleDashboardPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import AdminUserSettingsPage from './pages/AdminUserSettingsPage';
 
 function App() {
   return (
@@ -14,6 +15,14 @@ function App() {
         element={
           <ProtectedRoute>
             <RoleDashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings/users"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <AdminUserSettingsPage />
           </ProtectedRoute>
         }
       />
