@@ -18,11 +18,6 @@ const STATUS_LABELS = {
   hr_head_rejected: 'Rejected by HR Head',
 };
 
-const getUtcDay = (dateInput) => {
-  const date = new Date(dateInput);
-  return date.getUTCDay();
-};
-
 const normalizeHours = (value, fallback = 0) => {
   const parsed = Number(value);
   if (Number.isNaN(parsed) || parsed < 0) {
@@ -36,31 +31,19 @@ const getDefaultHours = (entryType) => {
     return 0;
   }
   if (entryType === 'Half Day') {
-    return 3.75;
+    return 3.5;
   }
-  return 7.5;
+  return 7;
 };
 
-const enforceWeekendOffDay = (entries = []) => {
+const normalizeEntriesForUi = (entries = []) => {
   return entries.map((entry) => {
-    const day = getUtcDay(entry.date);
-    const isWeekend = day === 0 || day === 6;
-
-    if (!isWeekend) {
-      const normalizedType = entry.entryType || 'Regular Hours';
-      return {
-        ...entry,
-        entryType: normalizedType,
-        hours: normalizeHours(entry.hours, getDefaultHours(normalizedType)),
-        overtimeHours: normalizedType === 'Overtime' ? normalizeHours(entry.overtimeHours, 0) : 0,
-      };
-    }
-
+    const normalizedType = entry.entryType || 'Regular Hours';
     return {
       ...entry,
-      entryType: 'Off Day',
-      hours: 0,
-      overtimeHours: 0,
+      entryType: normalizedType,
+      hours: normalizeHours(entry.hours, getDefaultHours(normalizedType)),
+      overtimeHours: normalizedType === 'Overtime' ? normalizeHours(entry.overtimeHours, 0) : 0,
     };
   });
 };
@@ -112,7 +95,7 @@ const StaffPanel = ({
         drafts[0]
           ? {
               ...drafts[0],
-              entries: enforceWeekendOffDay(drafts[0].entries || []),
+              entries: normalizeEntriesForUi(drafts[0].entries || []),
             }
           : null
       );
@@ -136,7 +119,7 @@ const StaffPanel = ({
 
     setTimesheet({
       ...selectedDraft,
-      entries: enforceWeekendOffDay(selectedDraft.entries || []),
+      entries: normalizeEntriesForUi(selectedDraft.entries || []),
     });
   }, [selectedDraftId, draftTimesheets]);
 
@@ -149,17 +132,6 @@ const StaffPanel = ({
       const nextEntries = previous.entries.map((entry, entryIndex) => {
         if (entryIndex !== index) {
           return entry;
-        }
-
-        const day = getUtcDay(entry.date);
-        const isWeekend = day === 0 || day === 6;
-        if (isWeekend) {
-          return {
-            ...entry,
-            entryType: 'Off Day',
-            hours: 0,
-            overtimeHours: 0,
-          };
         }
 
         const nextEntry = { ...entry, [field]: value };
@@ -177,14 +149,14 @@ const StaffPanel = ({
         return nextEntry;
       });
 
-      const enforcedEntries = enforceWeekendOffDay(nextEntries);
+      const normalizedEntries = normalizeEntriesForUi(nextEntries);
       const totalHours = Number(
-        enforcedEntries.reduce((acc, entry) => acc + (entry.hours || 0) + (entry.overtimeHours || 0), 0).toFixed(2)
+        normalizedEntries.reduce((acc, entry) => acc + (entry.hours || 0) + (entry.overtimeHours || 0), 0).toFixed(2)
       );
 
       return {
         ...previous,
-        entries: enforcedEntries,
+        entries: normalizedEntries,
         totalHours,
       };
     });
@@ -208,13 +180,13 @@ const StaffPanel = ({
     try {
       const periodDate = new Date(timesheet.periodStart).toISOString().split('T')[0];
       const response = await api.post(`/timesheets/period/${periodDate}`, {
-        entries: enforceWeekendOffDay(timesheet.entries),
+        entries: normalizeEntriesForUi(timesheet.entries),
         submit,
       });
 
       setTimesheet({
         ...response.data,
-        entries: enforceWeekendOffDay(response.data.entries || []),
+        entries: normalizeEntriesForUi(response.data.entries || []),
       });
 
       setFeedback(submit ? `Timesheet submitted to ${submitTargetLabel}.` : 'Draft saved.');

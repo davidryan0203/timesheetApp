@@ -49,7 +49,7 @@ const generateDefaultEntries = (periodStart, periodEnd = addDays(periodStart, BI
       date,
       entryType: isWeekend ? 'Off Day' : 'Regular Hours',
       notes: '',
-      hours: isWeekend ? 0 : 7.5,
+      hours: isWeekend ? 0 : 7,
       overtimeHours: 0,
       dateOnly: formatDateOnly(date),
     };
@@ -67,22 +67,21 @@ const normalizeEntries = (entries = []) => {
     const normalizedDate = toUTCDate(entry.date);
     const day = normalizedDate.getUTCDay();
     const isWeekend = day === 0 || day === 6;
-    const entryType = typeof entry.entryType === 'string' && entry.entryType.trim()
-      ? entry.entryType.trim()
-      : 'Regular Hours';
-    const normalizedType = isWeekend ? 'Off Day' : entryType;
-    let defaultHours = 7.5;
+    const defaultType = isWeekend ? 'Off Day' : 'Regular Hours';
+    const normalizedType =
+      typeof entry.entryType === 'string' && entry.entryType.trim()
+        ? entry.entryType.trim()
+        : defaultType;
+    let defaultHours = 7;
     if (normalizedType === 'Off Day') {
       defaultHours = 0;
     }
     if (normalizedType === 'Half Day') {
-      defaultHours = 3.75;
+      defaultHours = 3.5;
     }
 
-    const hours = isWeekend ? 0 : normalizeHours(entry.hours, defaultHours);
-    const overtimeHours = isWeekend || normalizedType !== 'Overtime'
-      ? 0
-      : normalizeHours(entry.overtimeHours, 0);
+    const hours = normalizeHours(entry.hours, defaultHours);
+    const overtimeHours = normalizedType !== 'Overtime' ? 0 : normalizeHours(entry.overtimeHours, 0);
 
     return {
       date: normalizedDate,
