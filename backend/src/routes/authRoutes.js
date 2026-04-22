@@ -1,6 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { register, login, me, listManagers, createUserByAdmin } = require('../controllers/authController');
+const { register, login, me, listManagers, listCeos, createUserByAdmin } = require('../controllers/authController');
 const authMiddleware = require('../middleware/authMiddleware');
 const requireRoles = require('../middleware/roleMiddleware');
 
@@ -35,8 +35,8 @@ router.post(
       .withMessage('Password must be at least 6 characters long'),
     body('role')
       .optional()
-      .isIn(['admin', 'hr', 'manager', 'staff', 'hr_head'])
-      .withMessage('Role must be admin, hr, manager, staff, or hr_head'),
+      .isIn(['admin', 'hr', 'manager', 'staff', 'ceo', 'hr_head'])
+      .withMessage('Role must be admin, hr, manager, staff, ceo, or hr_head'),
     body('managerId')
       .optional({ values: 'falsy' })
       .isMongoId()
@@ -66,8 +66,8 @@ router.post(
       .withMessage('Password must be at least 6 characters long'),
     body('role')
       .optional()
-      .isIn(['admin', 'hr', 'manager', 'staff', 'hr_head'])
-      .withMessage('Role must be admin, hr, manager, staff, or hr_head'),
+      .isIn(['admin', 'hr', 'manager', 'staff', 'ceo', 'hr_head'])
+      .withMessage('Role must be admin, hr, manager, staff, ceo, or hr_head'),
     body('managerId')
       .optional({ values: 'falsy' })
       .isMongoId()
@@ -95,5 +95,6 @@ router.post(
 
 router.get('/me', authMiddleware, me);
 router.get('/managers', listManagers);
+router.get('/ceos', listCeos);
 
 module.exports = router;

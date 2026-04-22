@@ -74,7 +74,7 @@ const timesheetSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['draft', 'pending_manager', 'manager_approved', 'manager_rejected', 'hr_head_approved', 'hr_head_rejected'],
+      enum: ['draft', 'pending_manager', 'manager_approved', 'manager_rejected', 'pending_ceo', 'ceo_approved', 'ceo_rejected', 'hr_head_approved', 'hr_head_rejected'],
       default: 'draft',
       index: true,
     },
@@ -89,6 +89,21 @@ const timesheetSchema = new mongoose.Schema(
       default: null,
     },
     managerComment: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    ceo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
+    ceoReviewedAt: {
+      type: Date,
+      default: null,
+    },
+    ceoComment: {
       type: String,
       default: '',
       trim: true,

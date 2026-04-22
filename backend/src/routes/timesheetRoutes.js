@@ -9,6 +9,8 @@ const {
   getRecentTimesheets,
   getManagerApprovalQueue,
   managerReviewTimesheet,
+  getCeoReviewQueue,
+  ceoReviewTimesheet,
   getHrReviewQueue,
   getHrHeadReviewQueue,
   hrHeadReviewTimesheet,
@@ -63,6 +65,18 @@ router.post(
   ],
   managerReviewTimesheet
 );
+
+router.get('/ceo/pending', requireRoles('ceo'), getCeoReviewQueue);
+router.post(
+  '/ceo/review/:id',
+  requireRoles('ceo'),
+  [
+    body('decision').isIn(['approve', 'reject']).withMessage('decision must be approve or reject'),
+    body('comment').optional().isString().withMessage('comment must be text'),
+  ],
+  ceoReviewTimesheet
+);
+
 router.get('/hr/pending', requireRoles('hr', 'admin'), getHrReviewQueue);
 router.get('/hr-head/pending', requireRoles('hr_head'), getHrHeadReviewQueue);
 router.post(

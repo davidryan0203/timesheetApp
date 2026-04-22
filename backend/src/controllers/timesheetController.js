@@ -15,6 +15,9 @@ const APPROVAL_STATUSES = {
   PENDING_MANAGER: 'pending_manager',
   MANAGER_APPROVED: 'manager_approved',
   MANAGER_REJECTED: 'manager_rejected',
+  PENDING_CEO: 'pending_ceo',
+  CEO_APPROVED: 'ceo_approved',
+  CEO_REJECTED: 'ceo_rejected',
   HR_HEAD_APPROVED: 'hr_head_approved',
   HR_HEAD_REJECTED: 'hr_head_rejected',
 };
@@ -36,6 +39,7 @@ const mapResponse = (timesheetDoc) => {
   const json = timesheetDoc.toObject();
   const hasUser = json.user && typeof json.user === 'object' && json.user._id;
   const hasManager = json.manager && typeof json.manager === 'object' && json.manager._id;
+  const hasCeo = json.ceo && typeof json.ceo === 'object' && json.ceo._id;
 
   return {
     id: json._id,
@@ -54,6 +58,13 @@ const mapResponse = (timesheetDoc) => {
           email: json.manager.email,
         }
       : undefined,
+    ceo: hasCeo
+      ? {
+          id: json.ceo._id,
+          name: json.ceo.name,
+          email: json.ceo.email,
+        }
+      : undefined,
     periodStart: json.periodStart,
     periodEnd: json.periodEnd,
     customTypes: json.customTypes || [],
@@ -67,6 +78,8 @@ const mapResponse = (timesheetDoc) => {
     status: json.status || APPROVAL_STATUSES.DRAFT,
     managerReviewedAt: json.managerReviewedAt,
     managerComment: json.managerComment,
+    ceoReviewedAt: json.ceoReviewedAt,
+    ceoComment: json.ceoComment,
     hrHeadReviewedAt: json.hrHeadReviewedAt,
     hrHeadComment: json.hrHeadComment,
   };
@@ -79,7 +92,7 @@ const getTimesheetByDate = async (req, res) => {
   const existing = await Timesheet.findOne({
     user: req.user.id,
     periodStart,
-  });
+  }).populate('manager', 'name email').populate('ceo', 'name email');
 
   if (!existing) {
     return res.status(404).json({
@@ -114,6 +127,8 @@ const saveTimesheetByDate = async (req, res) => {
     [
       APPROVAL_STATUSES.PENDING_MANAGER,
       APPROVAL_STATUSES.MANAGER_APPROVED,
+      APPROVAL_STATUSES.PENDING_CEO,
+      APPROVAL_STATUSES.CEO_APPROVED,
       APPROVAL_STATUSES.HR_HEAD_APPROVED,
     ].includes(existing?.status)
   ) {
@@ -150,11 +165,18 @@ const saveTimesheetByDate = async (req, res) => {
     }
 
     if (currentUser.role === 'manager') {
+      if (!currentUser.manager) {
+        return res.status(400).json({
+          message: 'No CEO is assigned to your account. Please contact admin.',
+        });
+      }
+
       timesheet.submittedAt = new Date();
-      timesheet.status = APPROVAL_STATUSES.MANAGER_APPROVED;
+      timesheet.status = APPROVAL_STATUSES.PENDING_CEO;
       timesheet.manager = currentUser._id;
-      timesheet.managerReviewedAt = new Date();
-      timesheet.managerComment = 'Auto-approved manager self timesheet';
+      timesheet.ceo = currentUser.manager;
+      timesheet.managerReviewedAt = null;
+      timesheet.managerComment = '';
       await timesheet.save();
     } else {
       if (!currentUser.manager) {
@@ -166,13 +188,19 @@ const saveTimesheetByDate = async (req, res) => {
       timesheet.submittedAt = new Date();
       timesheet.status = APPROVAL_STATUSES.PENDING_MANAGER;
       timesheet.manager = currentUser.manager;
+      timesheet.ceo = null;
       timesheet.managerReviewedAt = null;
       timesheet.managerComment = '';
       await timesheet.save();
     }
   }
 
-  return res.json(mapResponse(timesheet));
+  const refreshed = await Timesheet.findById(timesheet._id)
+    .populate('user', 'name email role')
+    .populate('manager', 'name email')
+    .populate('ceo', 'name email');
+
+  return res.json(mapResponse(refreshed));
 };
 
 const sendOutTimesheets = async (req, res) => {
@@ -240,8 +268,10 @@ const sendOutTimesheets = async (req, res) => {
       totalHours: sumHours(entries),
       submittedAt: null,
       status: APPROVAL_STATUSES.DRAFT,
-      manager: staff.manager || null,
+      manager: staff.role === 'staff' ? staff.manager || null : null,
+      ceo: staff.role === 'manager' ? staff.manager || null : null,
       managerComment: '',
+      ceoComment: '',
       hrHeadComment: '',
     });
 
@@ -332,10 +362,11 @@ const getSubmissionStatusByRange = async (req, res) => {
   });
 };
 
-const getAllSubmittedTimesheets = async (req, res) => {
+const getAllSubmittedTimesheets = async (_req, res) => {
   const timesheets = await Timesheet.find({ submittedAt: { $ne: null } })
     .populate('user', 'name email role')
     .populate('manager', 'name email')
+    .populate('ceo', 'name email')
     .sort({ submittedAt: -1 })
     .limit(100);
 
@@ -345,6 +376,7 @@ const getAllSubmittedTimesheets = async (req, res) => {
 const getRecentTimesheets = async (req, res) => {
   const timesheets = await Timesheet.find({ user: req.user.id })
     .populate('manager', 'name email')
+    .populate('ceo', 'name email')
     .sort({ periodStart: -1 })
     .limit(24);
 
@@ -392,6 +424,51 @@ const managerReviewTimesheet = async (req, res) => {
   return res.json(mapResponse(timesheet));
 };
 
+const getCeoReviewQueue = async (req, res) => {
+  const timesheets = await Timesheet.find({ ceo: req.user.id, status: APPROVAL_STATUSES.PENDING_CEO })
+    .populate('user', 'name email role')
+    .populate('manager', 'name email')
+    .populate('ceo', 'name email')
+    .sort({ submittedAt: -1 })
+    .limit(100);
+
+  return res.json(timesheets.map(mapResponse));
+};
+
+const ceoReviewTimesheet = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+  }
+
+  const { id } = req.params;
+  const { decision, comment } = req.body;
+
+  const timesheet = await Timesheet.findById(id)
+    .populate('user', 'name email role')
+    .populate('manager', 'name email')
+    .populate('ceo', 'name email');
+  if (!timesheet) {
+    return res.status(404).json({ message: 'Timesheet not found' });
+  }
+
+  if (String(timesheet.ceo?._id || timesheet.ceo) !== String(req.user.id)) {
+    return res.status(403).json({ message: 'You can only review timesheets assigned to you' });
+  }
+
+  if (timesheet.status !== APPROVAL_STATUSES.PENDING_CEO) {
+    return res.status(409).json({ message: 'Timesheet is not pending CEO approval' });
+  }
+
+  timesheet.status =
+    decision === 'approve' ? APPROVAL_STATUSES.CEO_APPROVED : APPROVAL_STATUSES.CEO_REJECTED;
+  timesheet.ceoReviewedAt = new Date();
+  timesheet.ceoComment = typeof comment === 'string' ? comment.trim() : '';
+
+  await timesheet.save();
+  return res.json(mapResponse(timesheet));
+};
+
 const getHrReviewQueue = async (_req, res) => {
   const timesheets = await Timesheet.find({ status: APPROVAL_STATUSES.MANAGER_APPROVED })
     .populate('user', 'name email role')
@@ -403,10 +480,16 @@ const getHrReviewQueue = async (_req, res) => {
 };
 
 const getHrHeadReviewQueue = async (_req, res) => {
-  const timesheets = await Timesheet.find({ status: APPROVAL_STATUSES.MANAGER_APPROVED })
+  const timesheets = await Timesheet.find({
+    $or: [
+      { status: APPROVAL_STATUSES.MANAGER_APPROVED },
+      { status: APPROVAL_STATUSES.CEO_APPROVED },
+    ],
+  })
     .populate('user', 'name email role')
     .populate('manager', 'name email')
-    .sort({ managerReviewedAt: -1 })
+    .populate('ceo', 'name email')
+    .sort({ submittedAt: -1 })
     .limit(100);
 
   return res.json(timesheets.map(mapResponse));
@@ -426,7 +509,7 @@ const hrHeadReviewTimesheet = async (req, res) => {
     return res.status(404).json({ message: 'Timesheet not found' });
   }
 
-  if (timesheet.status !== APPROVAL_STATUSES.MANAGER_APPROVED) {
+  if (![APPROVAL_STATUSES.MANAGER_APPROVED, APPROVAL_STATUSES.CEO_APPROVED].includes(timesheet.status)) {
     return res.status(409).json({ message: 'Timesheet is not ready for HR Head review' });
   }
 
@@ -448,6 +531,8 @@ module.exports = {
   getRecentTimesheets,
   getManagerApprovalQueue,
   managerReviewTimesheet,
+  getCeoReviewQueue,
+  ceoReviewTimesheet,
   getHrReviewQueue,
   getHrHeadReviewQueue,
   hrHeadReviewTimesheet,

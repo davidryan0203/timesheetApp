@@ -11,20 +11,26 @@ const AdminUserSettingsPage = () => {
   const [role, setRole] = useState('staff');
   const [managerId, setManagerId] = useState('');
   const [managers, setManagers] = useState([]);
+  const [ceos, setCeos] = useState([]);
   const [feedback, setFeedback] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    const loadManagers = async () => {
+    const loadSupervisors = async () => {
       try {
-        const response = await api.get('/auth/managers');
-        setManagers(response.data || []);
+        const [managersResponse, ceosResponse] = await Promise.all([
+          api.get('/auth/managers'),
+          api.get('/auth/ceos'),
+        ]);
+        setManagers(managersResponse.data || []);
+        setCeos(ceosResponse.data || []);
       } catch {
         setManagers([]);
+        setCeos([]);
       }
     };
 
-    loadManagers();
+    loadSupervisors();
   }, []);
 
   if (user?.role !== 'admin') {
@@ -41,6 +47,11 @@ const AdminUserSettingsPage = () => {
       return;
     }
 
+    if (role === 'manager' && !normalizedManagerId) {
+      setFeedback('Please select a CEO for manager accounts.');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const response = await api.post('/auth/admin/create-user', {
@@ -48,7 +59,7 @@ const AdminUserSettingsPage = () => {
         email,
         password,
         role,
-        managerId: role === 'staff' ? normalizedManagerId : undefined,
+        managerId: ['staff', 'manager'].includes(role) ? normalizedManagerId : undefined,
       });
       setFeedback(response.data?.message || 'User account created successfully.');
       setName('');
@@ -75,7 +86,7 @@ const AdminUserSettingsPage = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-sm text-slate-600">Create staff, manager, HR, HR Head, or admin accounts.</p>
+          <p className="text-sm text-slate-600">Create staff, manager, CEO, HR, HR Head, or admin accounts.</p>
 
           {feedback ? <p className="mt-4 rounded-lg bg-slate-100 p-2 text-sm text-slate-800">{feedback}</p> : null}
 
@@ -132,15 +143,16 @@ const AdminUserSettingsPage = () => {
           >
             <option value="staff">Staff</option>
             <option value="manager">Manager</option>
+            <option value="ceo">CEO</option>
             <option value="hr">HR</option>
             <option value="hr_head">HR Head</option>
             <option value="admin">Admin</option>
           </select>
 
-          {role === 'staff' ? (
+          {['staff', 'manager'].includes(role) ? (
             <>
               <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="settingsManagerId">
-                Assigned Manager
+                {role === 'staff' ? 'Assigned Manager' : 'Assigned CEO'}
               </label>
               <select
                 id="settingsManagerId"
@@ -149,10 +161,10 @@ const AdminUserSettingsPage = () => {
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
                 required
               >
-                <option value="">Select manager</option>
-                {managers.map((manager) => (
-                  <option key={manager.id} value={manager.id}>
-                    {manager.name} ({manager.email})
+                <option value="">{role === 'staff' ? 'Select manager' : 'Select CEO'}</option>
+                {(role === 'staff' ? managers : ceos).map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name} ({person.email})
                   </option>
                 ))}
               </select>

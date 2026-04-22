@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
 const authRoutes = require('./routes/authRoutes');
 const timesheetRoutes = require('./routes/timesheetRoutes');
 
@@ -54,6 +56,16 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/timesheets', timesheetRoutes);
+
+const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+
+  // Let React Router handle non-API routes when frontend is built.
+  app.get(/^\/(?!api).*/, (_req, res) => {
+    res.sendFile(path.join(frontendDistPath, 'index.html'));
+  });
+}
 
 app.use((error, _req, res, _next) => {
   console.error(error);

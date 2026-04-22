@@ -16,6 +16,9 @@ const STATUS_LABELS = {
   manager_rejected: 'Rejected by Manager',
   hr_head_approved: 'Approved by HR Head',
   hr_head_rejected: 'Rejected by HR Head',
+  pending_ceo: 'Pending CEO',
+  ceo_approved: 'Approved by CEO',
+  ceo_rejected: 'Rejected by CEO',
 };
 
 const normalizeHours = (value, fallback = 0) => {
@@ -75,7 +78,10 @@ const StaffPanel = ({
   const submittedTimesheets = useMemo(() => history.filter((item) => Boolean(item.submittedAt)), [history]);
 
   const draftTimesheets = useMemo(
-    () => history.filter((item) => !item.submittedAt || item.status === 'manager_rejected'),
+    () =>
+      history.filter((item) =>
+        !item.submittedAt || ['manager_rejected', 'ceo_rejected', 'hr_head_rejected'].includes(item.status)
+      ),
     [history]
   );
 
@@ -85,7 +91,10 @@ const StaffPanel = ({
     try {
       const recentResponse = await api.get('/timesheets/recent');
       const allTimesheets = recentResponse.data;
-      const drafts = allTimesheets.filter((item) => !item.submittedAt || item.status === 'manager_rejected');
+      const drafts = allTimesheets.filter(
+        (item) =>
+          !item.submittedAt || ['manager_rejected', 'ceo_rejected', 'hr_head_rejected'].includes(item.status)
+      );
       const submitted = allTimesheets.filter((item) => Boolean(item.submittedAt));
 
       setHistory(allTimesheets);
@@ -559,7 +568,7 @@ const ManagerPanel = ({ user }) => {
         user={user}
         panelTitle="Manager Timesheet"
         roleLabel="manager"
-        submitTargetLabel="HR Head"
+        submitTargetLabel="CEO"
         loadErrorText="Unable to load manager timesheets"
       />
 
@@ -709,6 +718,116 @@ const HRHeadPanel = ({ user }) => {
                   <td className="px-3 py-2">
                     {item.managerReviewedAt ? dayjs(item.managerReviewedAt).format('MMM D, YYYY h:mm A') : '-'}
                   </td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => setViewingTimesheet(item)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                    >
+                      View
+                    </button>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => review(item.id, 'approve')}
+                        disabled={reviewingId === item.id}
+                        className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => review(item.id, 'reject')}
+                        disabled={reviewingId === item.id}
+                        className="rounded-lg bg-rose-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <SubmittedTimesheetModal timesheet={viewingTimesheet} onClose={() => setViewingTimesheet(null)} />
+    </>
+  );
+};
+
+const CeoPanel = ({ user }) => {
+  const [queue, setQueue] = useState([]);
+  const [viewingTimesheet, setViewingTimesheet] = useState(null);
+  const [reviewingId, setReviewingId] = useState('');
+  const [feedback, setFeedback] = useState('');
+
+  const loadQueue = useCallback(async () => {
+    try {
+      const response = await api.get('/timesheets/ceo/pending');
+      setQueue(response.data || []);
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to load CEO queue');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadQueue();
+  }, [loadQueue]);
+
+  const review = async (id, decision) => {
+    const comment = window.prompt(`Optional note for ${decision}:`) || '';
+    setReviewingId(id);
+    setFeedback('');
+
+    try {
+      await api.post(`/timesheets/ceo/review/${id}`, { decision, comment });
+      setFeedback(`Timesheet ${decision}d successfully.`);
+      await loadQueue();
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to review timesheet');
+    } finally {
+      setReviewingId('');
+    }
+  };
+
+  return (
+    <>
+      <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-800">CEO Review Panel</h1>
+            <p className="text-sm text-slate-600">{user.name} ({user.email})</p>
+          </div>
+          <p className="rounded-lg bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700">Role: ceo</p>
+        </div>
+      </header>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">Pending Manager Timesheets</h2>
+        {feedback ? <p className="mt-2 text-sm text-slate-700">{feedback}</p> : null}
+
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+              <tr>
+                <th className="px-3 py-2">Manager</th>
+                <th className="px-3 py-2">Period</th>
+                <th className="px-3 py-2">Submitted At</th>
+                <th className="px-3 py-2">Total Hours</th>
+                <th className="px-3 py-2">View</th>
+                <th className="px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {queue.map((item) => (
+                <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                  <td className="px-3 py-2">{item.manager?.name || item.user?.name || '-'}</td>
+                  <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
+                  <td className="px-3 py-2">
+                    {item.submittedAt ? dayjs(item.submittedAt).format('MMM D, YYYY h:mm A') : '-'}
+                  </td>
+                  <td className="px-3 py-2">{Number(item.totalHours || 0).toFixed(2)}</td>
                   <td className="px-3 py-2">
                     <button
                       onClick={() => setViewingTimesheet(item)}
@@ -1014,6 +1133,7 @@ const RoleDashboardPage = () => {
         {user?.role === 'admin' ? <AdminPanel user={user} /> : null}
         {user?.role === 'hr' ? <HRPanel user={user} /> : null}
         {user?.role === 'manager' ? <ManagerPanel user={user} /> : null}
+          {user?.role === 'ceo' ? <CeoPanel user={user} /> : null}
         {user?.role === 'hr_head' ? <HRHeadPanel user={user} /> : null}
         {user?.role === 'staff' ? <StaffPanel user={user} /> : null}
       </div>

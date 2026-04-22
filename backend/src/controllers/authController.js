@@ -37,6 +37,17 @@ const resolveRoleAndManager = async (inputBody) => {
     const manager = await User.findOne({ _id: managerId, role: { $in: ['manager'] } });
     if (!manager) {
       return { error: 'Assigned manager does not exist' };
+
+      if (normalizedRole === 'manager') {
+        if (!managerId) {
+          return { error: 'Manager users must have a CEO assigned' };
+        }
+
+        const ceo = await User.findOne({ _id: managerId, role: { $in: ['ceo'] } });
+        if (!ceo) {
+          return { error: 'Assigned CEO does not exist' };
+        }
+      }
     }
   }
 
@@ -70,7 +81,7 @@ const register = async (req, res) => {
     email,
     password: passwordHash,
     role: roleInfo.normalizedRole,
-    manager: roleInfo.normalizedRole === 'staff' ? roleInfo.managerId : null,
+    manager: ['staff', 'manager'].includes(roleInfo.normalizedRole) ? roleInfo.managerId : null,
   });
 
   const token = signToken(user);
@@ -111,7 +122,7 @@ const createUserByAdmin = async (req, res) => {
     email,
     password: passwordHash,
     role: roleInfo.normalizedRole,
-    manager: roleInfo.normalizedRole === 'staff' ? roleInfo.managerId : null,
+    manager: ['staff', 'manager'].includes(roleInfo.normalizedRole) ? roleInfo.managerId : null,
   });
 
   return res.status(201).json({
@@ -169,6 +180,17 @@ const listManagers = async (_req, res) => {
   );
 };
 
+const listCeos = async (_req, res) => {
+  const ceos = await User.find({ role: 'ceo' }).select('_id name email').sort({ name: 1 });
+  return res.json(
+    ceos.map((ceo) => ({
+      id: ceo._id,
+      name: ceo.name,
+      email: ceo.email,
+    }))
+  );
+};
+
 const me = async (req, res) => {
   const user = await User.findById(req.user.id).select('-password');
   if (!user) {
@@ -185,5 +207,6 @@ module.exports = {
   login,
   me,
   listManagers,
+  listCeos,
   createUserByAdmin,
 };
