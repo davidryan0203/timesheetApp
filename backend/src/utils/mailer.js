@@ -4,6 +4,10 @@ const path = require('path');
 
 let transporter;
 
+const isEmailDispatchEnabled = () => {
+  return String(process.env.EMAIL_DISPATCH_ENABLED || 'false').toLowerCase() === 'true';
+};
+
 const escapeHtml = (value = '') => {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -46,6 +50,14 @@ const getTransporter = () => {
 };
 
 const sendTimesheetAssignedEmail = async ({ toEmail, toName, periodStart, periodEnd, dispatcherName }) => {
+  if (!isEmailDispatchEnabled()) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: 'Email dispatch is disabled',
+    };
+  }
+
   if (!hasSmtpConfig()) {
     return {
       sent: false,
