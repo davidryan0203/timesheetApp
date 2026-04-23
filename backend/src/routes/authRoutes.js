@@ -35,8 +35,8 @@ router.post(
       .withMessage('Password must be at least 6 characters long'),
     body('role')
       .optional()
-      .isIn(['admin', 'hr', 'manager', 'staff', 'ceo', 'hr_head'])
-      .withMessage('Role must be admin, hr, manager, staff, ceo, or hr_head'),
+      .isIn(['admin', 'hr', 'manager', 'staff', 'ceo', 'hr_head', 'payroll'])
+      .withMessage('Role must be admin, hr, manager, staff, ceo, hr_head, or payroll'),
     body('managerId')
       .optional({ values: 'falsy' })
       .isMongoId()
@@ -66,8 +66,8 @@ router.post(
       .withMessage('Password must be at least 6 characters long'),
     body('role')
       .optional()
-      .isIn(['admin', 'hr', 'manager', 'staff', 'ceo', 'hr_head'])
-      .withMessage('Role must be admin, hr, manager, staff, ceo, or hr_head'),
+      .isIn(['admin', 'hr', 'manager', 'staff', 'ceo', 'hr_head', 'payroll'])
+      .withMessage('Role must be admin, hr, manager, staff, ceo, hr_head, or payroll'),
     body('managerId')
       .optional({ values: 'falsy' })
       .isMongoId()

@@ -58,7 +58,7 @@ router.post(
 
 router.get('/dispatch/status', requireRoles('hr', 'admin'), getSubmissionStatusByRange);
 router.get('/dispatch/latest-period', requireRoles('hr', 'admin'), getLatestDispatchedPeriod);
-router.get('/printable', requireRoles('hr', 'admin'), getPrintableTimesheets);
+router.get('/printable', requireRoles('hr', 'admin', 'payroll'), getPrintableTimesheets);
 router.get('/manager/pending', requireRoles('manager'), getManagerApprovalQueue);
 router.post(
   '/manager/review/:id',
@@ -92,6 +92,6 @@ router.post(
   ],
   hrHeadReviewTimesheet
 );
-router.get('/admin/submitted', requireRoles('admin'), getAllSubmittedTimesheets);
+router.get('/admin/submitted', requireRoles('admin', 'payroll'), getAllSubmittedTimesheets);
 
 module.exports = router;

@@ -143,6 +143,7 @@ const RegisterPage = () => {
           <option value="ceo">CEO</option>
           <option value="hr">HR</option>
           <option value="hr_head">HR Head</option>
+          <option value="payroll">Payroll</option>
           <option value="admin">Admin</option>
         </select>
 

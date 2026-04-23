@@ -1329,6 +1329,111 @@ const AdminPanel = ({ user }) => {
   );
 };
 
+const PayrollPanel = ({ user }) => {
+  const [submittedTimesheets, setSubmittedTimesheets] = useState([]);
+  const [viewingTimesheet, setViewingTimesheet] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [feedback, setFeedback] = useState('');
+
+  const loadPayrollData = useCallback(async () => {
+    setLoading(true);
+    setFeedback('');
+
+    try {
+      const response = await api.get('/timesheets/printable');
+      setSubmittedTimesheets(response.data);
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to load payroll timesheets');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPayrollData();
+  }, [loadPayrollData]);
+
+  const handlePrint = (timesheet, onError) => {
+    printSubmittedTimesheet(timesheet, onError);
+  };
+
+  return (
+    <>
+      <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-800">Payroll Dashboard</h1>
+            <p className="text-sm text-slate-600">{user.name} ({user.email})</p>
+          </div>
+          <p className="rounded-lg bg-cyan-50 px-3 py-1 text-sm font-medium text-cyan-700">Role: payroll</p>
+        </div>
+      </header>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">Approved Timesheets for Payroll</h2>
+        <p className="mt-1 text-sm text-slate-600">View and print submitted pay periods for payroll processing.</p>
+        {feedback ? <p className="mt-2 text-sm text-red-600">{feedback}</p> : null}
+
+        {loading ? (
+          <p className="mt-4 text-sm text-slate-600">Loading timesheets...</p>
+        ) : submittedTimesheets.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-600">No HR-approved timesheets available for payroll processing.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+                <tr>
+                  <th className="px-3 py-2">Staff</th>
+                  <th className="px-3 py-2">Manager</th>
+                  <th className="px-3 py-2">Period</th>
+                  <th className="px-3 py-2">Total Hours</th>
+                  <th className="px-3 py-2">Submitted At</th>
+                  <th className="px-3 py-2">HR Approved At</th>
+                  <th className="px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {submittedTimesheets.map((item) => (
+                  <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                    <td className="px-3 py-2">{item.user?.name || '-'}</td>
+                    <td className="px-3 py-2">{item.manager?.name || '-'}</td>
+                    <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
+                    <td className="px-3 py-2">{Number(item.totalHours || 0).toFixed(2)}</td>
+                    <td className="px-3 py-2">
+                      {item.submittedAt ? dayjs(item.submittedAt).format('MMM D, YYYY') : '-'}
+                    </td>
+                    <td className="px-3 py-2">
+                      {item.hrHeadReviewedAt ? dayjs(item.hrHeadReviewedAt).format('MMM D, YYYY') : '-'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setViewingTimesheet(item)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={() => handlePrint(item, (error) => setFeedback(error))}
+                          className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                        >
+                          Print
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <SubmittedTimesheetModal timesheet={viewingTimesheet} onClose={() => setViewingTimesheet(null)} />
+    </>
+  );
+};
+
 const RoleDashboardPage = () => {
   const { user, logout } = useAuth();
 
@@ -1350,6 +1455,7 @@ const RoleDashboardPage = () => {
         {user?.role === 'manager' ? <ManagerPanel user={user} /> : null}
         {user?.role === 'ceo' ? <CeoPanel user={user} /> : null}
         {user?.role === 'hr_head' ? <HRHeadPanel user={user} /> : null}
+        {user?.role === 'payroll' ? <PayrollPanel user={user} /> : null}
         {user?.role === 'staff' ? <StaffPanel user={user} /> : null}
 
         <footer className="mt-auto rounded-xl border border-slate-200 bg-white/70 p-3 text-center text-xs text-slate-600">
