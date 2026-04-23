@@ -1,6 +1,16 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { register, login, me, listManagers, listCeos, createUserByAdmin } = require('../controllers/authController');
+const {
+  register,
+  login,
+  me,
+  listManagers,
+  listCeos,
+  createUserByAdmin,
+  listUsersForAdmin,
+  requestPasswordResetByAdmin,
+  resetPasswordWithToken,
+} = require('../controllers/authController');
 const authMiddleware = require('../middleware/authMiddleware');
 const requireRoles = require('../middleware/roleMiddleware');
 
@@ -93,8 +103,30 @@ router.post(
   login
 );
 
+router.post(
+  '/reset-password',
+  [
+    body('token').trim().notEmpty().withMessage('Reset token is required'),
+    body('password')
+      .isLength({ min: 6 })
+      .withMessage('Password must be at least 6 characters long'),
+    body('confirmPassword')
+      .isLength({ min: 6 })
+      .withMessage('Confirm password must be at least 6 characters long'),
+  ],
+  resetPasswordWithToken
+);
+
 router.get('/me', authMiddleware, me);
 router.get('/managers', listManagers);
 router.get('/ceos', listCeos);
+router.get('/admin/users', authMiddleware, requireRoles('admin'), listUsersForAdmin);
+router.post(
+  '/admin/request-password-reset',
+  authMiddleware,
+  requireRoles('admin'),
+  [body('userId').isMongoId().withMessage('userId must be a valid user id')],
+  requestPasswordResetByAdmin
+);
 
 module.exports = router;

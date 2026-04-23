@@ -68,7 +68,7 @@ const SubmittedTimesheetModal = ({ timesheet, onClose }) => {
             </thead>
             <tbody>
               {timesheet.entries.map((entry) => (
-                <tr key={entry.dateOnly || entry.date} className="border-t border-slate-100 text-slate-700">
+                <tr key={entry.dateOnly || entry.date} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
                   <td className="whitespace-nowrap px-3 py-2">{formatDateLabel(entry.dateOnly || entry.date)}</td>
                   <td className="whitespace-nowrap px-3 py-2">{formatDayLabel(entry.dateOnly || entry.date)}</td>
                   <td className="px-3 py-2">{entry.entryType || 'Regular Hours'}</td>

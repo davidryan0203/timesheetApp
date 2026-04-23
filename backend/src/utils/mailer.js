@@ -20,6 +20,7 @@ const escapeHtml = (value = '') => {
 const getReadableLogoPath = () => {
   const fallbackPaths = [
     process.env.SMTP_LOGO_PATH,
+    path.resolve(__dirname, '../../../frontend/public/logo.png'),
     path.resolve(__dirname, '../../assets/logo.png'),
     path.resolve(__dirname, '../../../frontend/src/assets/hero.png'),
   ].filter(Boolean);
@@ -168,6 +169,112 @@ const sendTimesheetAssignedEmail = async ({ toEmail, toName, periodStart, period
   return { sent: true, skipped: false };
 };
 
+const sendPasswordResetEmail = async ({ toEmail, toName, resetUrl, requestedBy }) => {
+  if (!isEmailDispatchEnabled()) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: 'Email dispatch is disabled',
+    };
+  }
+
+  if (!hasSmtpConfig()) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: 'SMTP is not configured',
+    };
+  }
+
+  const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const fromLabel = process.env.SMTP_FROM_NAME || 'Timesheet App';
+  const receiverName = toName || 'Team Member';
+  const requester = requestedBy || 'Administrator';
+  const logoPath = getReadableLogoPath();
+  const logoCid = 'timesheet-logo';
+  const receiverNameEscaped = escapeHtml(receiverName);
+  const requesterEscaped = escapeHtml(requester);
+
+  const subject = 'Reset your Timesheet App password';
+  const text = [
+    `Hi ${receiverName},`,
+    '',
+    `${requester} requested a password reset for your account.`,
+    'Use the link below to create a new password:',
+    resetUrl,
+    '',
+    'This link will expire in 30 minutes.',
+    '',
+    'If you did not request this, please ignore this email.',
+    '',
+    'Timesheet App',
+  ].join('\n');
+
+  const html = `
+    <div style="margin:0; padding:24px; background:#f2f5f8; font-family:Arial,Helvetica,sans-serif; color:#1f2937;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px; margin:0 auto; background:#ffffff; border:1px solid #e5e7eb; border-radius:14px; overflow:hidden;">
+        <tr>
+          <td style="padding:20px 24px; background:#0f172a; color:#ffffff;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+              <tr>
+                <td style="vertical-align:middle;">
+                  ${logoPath ? `<img src="cid:${logoCid}" alt="Timesheet App" style="height:54px; width:54px; border-radius:50%; border:2px solid #22c55e; object-fit:cover; display:block;"/>` : ''}
+                </td>
+                <td style="vertical-align:middle; padding-left:14px;">
+                  <div style="font-size:13px; letter-spacing:0.08em; text-transform:uppercase; color:#93c5fd;">Security Notification</div>
+                  <div style="font-size:22px; font-weight:700; margin-top:4px;">Password Reset Requested</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:24px;">
+            <p style="margin:0 0 12px; font-size:16px;">Hi <strong>${receiverNameEscaped}</strong>,</p>
+            <p style="margin:0 0 18px; line-height:1.6; font-size:15px; color:#334155;">
+              ${requesterEscaped} requested a password reset for your account.
+            </p>
+
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+              <tr>
+                <td style="border-radius:10px; background:#2563eb;">
+                  <a href="${resetUrl}" style="display:inline-block; padding:12px 18px; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none;">Set New Password</a>
+                </td>
+              </tr>
+            </table>
+
+            <p style="margin:0; font-size:13px; color:#64748b; line-height:1.6;">
+              This link expires in 30 minutes. If you did not request this reset, ignore this email.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+
+  const attachments = logoPath
+    ? [
+        {
+          filename: path.basename(logoPath),
+          path: logoPath,
+          cid: logoCid,
+        },
+      ]
+    : undefined;
+
+  await getTransporter().sendMail({
+    from: `"${fromLabel}" <${fromAddress}>`,
+    to: toEmail,
+    subject,
+    text,
+    html,
+    attachments,
+  });
+
+  return { sent: true, skipped: false };
+};
+
 module.exports = {
   sendTimesheetAssignedEmail,
+  sendPasswordResetEmail,
 };

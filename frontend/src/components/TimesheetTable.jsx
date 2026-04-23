@@ -29,7 +29,7 @@ const TimesheetTable = ({ entries, typeOptions, onEntryChange, onAddCustomEntry 
         </thead>
         <tbody>
           {entries.map((entry, index) => (
-            <tr key={entry.id || entry.dateOnly || entry.date || index} className="border-t border-slate-100 text-slate-700">
+            <tr key={entry.id || entry.dateOnly || entry.date || index} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
               <td className="whitespace-nowrap px-3 py-2">
                 {entry.isCustomEntry ? (
                   <input

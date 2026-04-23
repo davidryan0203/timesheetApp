@@ -1,14 +1,21 @@
-import { useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { login, isAuthenticated } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const successMessage = useMemo(() => location.state?.successMessage || '', [location.state]);
+  const sessionExpiredMessage = useMemo(
+    () => (searchParams.get('sessionExpired') === '1' ? 'Your session has expired. Please login again.' : ''),
+    [searchParams]
+  );
 
   if (isAuthenticated) {
     return <Navigate to="/" replace />;
@@ -39,6 +46,14 @@ const LoginPage = () => {
         <form onSubmit={handleSubmit} className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
           <h1 className="text-2xl font-semibold text-slate-800">Timesheet Login</h1>
           <p className="mt-1 text-sm text-slate-500">Sign in to submit your bi-weekly timesheet.</p>
+
+        {successMessage ? (
+          <p className="mt-4 rounded-lg bg-emerald-50 p-2 text-sm text-emerald-700">{successMessage}</p>
+        ) : null}
+
+        {sessionExpiredMessage ? (
+          <p className="mt-4 rounded-lg bg-amber-50 p-2 text-sm text-amber-700">{sessionExpiredMessage}</p>
+        ) : null}
 
         {error ? <p className="mt-4 rounded-lg bg-red-50 p-2 text-sm text-red-700">{error}</p> : null}
 

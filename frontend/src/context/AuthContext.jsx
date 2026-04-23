@@ -28,6 +28,65 @@ export const AuthProvider = ({ children }) => {
     bootstrap();
   }, []);
 
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key !== 'timesheet-token') {
+        return;
+      }
+
+      if (!event.newValue) {
+        setUser(null);
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      return undefined;
+    }
+
+    let active = true;
+
+    const validateSession = async () => {
+      const token = localStorage.getItem('timesheet-token');
+      if (!token) {
+        if (active) {
+          setUser(null);
+        }
+        return;
+      }
+
+      try {
+        await api.get('/auth/me');
+      } catch {
+        if (active) {
+          localStorage.removeItem('timesheet-token');
+          setUser(null);
+        }
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        validateSession();
+      }
+    };
+
+    const intervalId = window.setInterval(validateSession, 15000);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [user]);
+
   const login = async (email, password) => {
     const response = await api.post('/auth/login', { email, password });
     localStorage.setItem('timesheet-token', response.data.token);

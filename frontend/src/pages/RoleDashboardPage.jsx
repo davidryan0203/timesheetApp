@@ -70,68 +70,7 @@ const printSubmittedTimesheet = (timesheet, onError) => {
   if (!timesheet) {
     return;
   }
-
-  const rowsHtml = (timesheet.entries || [])
-    .map(
-      (entry) => `
-        <tr>
-          <td>${escapeHtml(formatDateLabel(entry.dateOnly || entry.date))}</td>
-          <td>${escapeHtml(formatDayLabel(entry.dateOnly || entry.date))}</td>
-          <td>${escapeHtml(entry.entryType || 'Regular Hours')}</td>
-          <td>${Number(entry.hours || 0).toFixed(2)}</td>
-          <td>${Number(entry.overtimeHours || 0).toFixed(2)}</td>
-          <td>${escapeHtml(entry.notes || '-')}</td>
-        </tr>
-      `
-    )
-    .join('');
-
-  const safeRowsHtml = rowsHtml || '<tr><td colspan="6">No entries found</td></tr>';
-
-  const submittedLabel = timesheet.submittedAt ? dayjs(timesheet.submittedAt).format('MMM D, YYYY h:mm A') : '-';
-  const approvedLabel = timesheet.hrHeadReviewedAt
-    ? dayjs(timesheet.hrHeadReviewedAt).format('MMM D, YYYY h:mm A')
-    : '-';
-
-  const html = `<!doctype html>
-    <html>
-      <head>
-        <title></title>
-        <meta charset="utf-8" />
-        <style>
-          @page { margin: 12mm; }
-          body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
-          h1 { margin: 0 0 8px; }
-          .meta { margin: 0 0 4px; font-size: 14px; color: #334155; }
-          table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-          th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-size: 12px; }
-          th { background: #f1f5f9; }
-          .total { margin-top: 12px; font-weight: 700; }
-        </style>
-      </head>
-      <body>
-        <h1>HR Head Approved Timesheet</h1>
-        <p class="meta">Staff: ${escapeHtml(timesheet.user?.name || 'Unknown')} (${escapeHtml(timesheet.user?.email || '-')})</p>
-        <p class="meta">Period: ${escapeHtml(formatRange(timesheet.periodStart, timesheet.periodEnd))}</p>
-        <p class="meta">Submitted: ${escapeHtml(submittedLabel)}</p>
-        <p class="meta">HR Head Approved: ${escapeHtml(approvedLabel)}</p>
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Day</th>
-              <th>Type</th>
-              <th>Hours</th>
-              <th>Overtime</th>
-              <th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>${safeRowsHtml}</tbody>
-        </table>
-        <p class="total">Total Hours: ${Number(timesheet.totalHours || 0).toFixed(2)}</p>
-      </body>
-    </html>
-  `;
+  const html = buildPrintableTimesheetHtml([timesheet]);
 
   try {
     const iframe = document.createElement('iframe');
@@ -181,6 +120,131 @@ const printSubmittedTimesheet = (timesheet, onError) => {
   }
 };
 
+const buildPrintableTimesheetSectionHtml = (timesheet) => {
+  const rowsHtml = (timesheet.entries || [])
+    .map(
+      (entry) => `
+        <tr>
+          <td>${escapeHtml(formatDateLabel(entry.dateOnly || entry.date))}</td>
+          <td>${escapeHtml(formatDayLabel(entry.dateOnly || entry.date))}</td>
+          <td>${escapeHtml(entry.entryType || 'Regular Hours')}</td>
+          <td>${Number(entry.hours || 0).toFixed(2)}</td>
+          <td>${Number(entry.overtimeHours || 0).toFixed(2)}</td>
+          <td>${escapeHtml(entry.notes || '-')}</td>
+        </tr>
+      `
+    )
+    .join('');
+
+  const safeRowsHtml = rowsHtml || '<tr><td colspan="6">No entries found</td></tr>';
+
+  const submittedLabel = timesheet.submittedAt ? dayjs(timesheet.submittedAt).format('MMM D, YYYY h:mm A') : '-';
+  return `
+    <section class="timesheet-page">
+      <h1>Approved Timesheet</h1>
+      <p class="meta">Staff: ${escapeHtml(timesheet.user?.name || 'Unknown')} (${escapeHtml(timesheet.user?.email || '-')})</p>
+      <p class="meta">Period: ${escapeHtml(formatRange(timesheet.periodStart, timesheet.periodEnd))}</p>
+      <p class="meta">Submitted: ${escapeHtml(submittedLabel)}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Day</th>
+            <th>Type</th>
+            <th>Hours</th>
+            <th>Overtime</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>${safeRowsHtml}</tbody>
+      </table>
+      <p class="total">Total Hours: ${Number(timesheet.totalHours || 0).toFixed(2)}</p>
+    </section>
+  `;
+};
+
+const buildPrintableTimesheetHtml = (timesheets = []) => {
+  const sectionsHtml = timesheets.map((timesheet) => buildPrintableTimesheetSectionHtml(timesheet)).join('');
+
+  return `<!doctype html>
+    <html>
+      <head>
+        <title></title>
+        <meta charset="utf-8" />
+        <style>
+          @page { size: A4 portrait; margin: 12mm; }
+          body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
+          .timesheet-page { page-break-after: always; break-after: page; }
+          .timesheet-page:last-child { page-break-after: auto; break-after: auto; }
+          h1 { margin: 0 0 8px; }
+          .meta { margin: 0 0 4px; font-size: 14px; color: #334155; }
+          table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+          th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-size: 12px; }
+          th { background: #f1f5f9; }
+          .total { margin-top: 12px; font-weight: 700; }
+        </style>
+      </head>
+      <body>
+        ${sectionsHtml}
+      </body>
+    </html>
+  `;
+};
+
+const printSubmittedTimesheets = (timesheets, onError) => {
+  if (!Array.isArray(timesheets) || timesheets.length === 0) {
+    onError?.('No approved timesheets found to print.');
+    return;
+  }
+
+  const html = buildPrintableTimesheetHtml(timesheets);
+
+  try {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('title', 'timesheet-print-frame');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.visibility = 'hidden';
+
+    const cleanup = () => {
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
+
+    iframe.onload = () => {
+      const contentWindow = iframe.contentWindow;
+      if (!contentWindow) {
+        cleanup();
+        onError?.('Unable to prepare the print preview. Please try again.');
+        return;
+      }
+
+      contentWindow.onafterprint = cleanup;
+
+      setTimeout(() => {
+        try {
+          contentWindow.focus();
+          contentWindow.print();
+          setTimeout(cleanup, 2000);
+        } catch {
+          cleanup();
+          onError?.('Unable to print this report. Please try again.');
+        }
+      }, 100);
+    };
+
+    iframe.srcdoc = html;
+    document.body.appendChild(iframe);
+  } catch {
+    onError?.('Unable to prepare the print report. Please try again.');
+  }
+};
+
 const normalizeEntriesForUi = (entries = []) => {
   return entries.map((entry) => {
     const normalizedType = entry.entryType || 'Regular Hours';
@@ -192,6 +256,35 @@ const normalizeEntriesForUi = (entries = []) => {
     };
   });
 };
+  const groupPayrollTimesheetsByPeriod = (timesheets = []) => {
+    const grouped = new Map();
+
+    timesheets.forEach((timesheet) => {
+      const key = `${timesheet.periodStart}|${timesheet.periodEnd}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          periodStart: timesheet.periodStart,
+          periodEnd: timesheet.periodEnd,
+          items: [],
+        });
+      }
+
+      grouped.get(key).items.push(timesheet);
+    });
+
+    return Array.from(grouped.values())
+      .map((group) => ({
+        ...group,
+        items: group.items.sort((left, right) => {
+          const leftDate = left.submittedAt || left.hrHeadReviewedAt || left.periodStart;
+          const rightDate = right.submittedAt || right.hrHeadReviewedAt || right.periodStart;
+          return new Date(rightDate) - new Date(leftDate);
+        }),
+      }))
+      .sort((left, right) => new Date(right.periodStart) - new Date(left.periodStart));
+  };
+
 
 const ApprovalBadge = ({ status }) => {
   return (
@@ -705,7 +798,7 @@ const HRPanel = ({ user }) => {
               </thead>
               <tbody>
                 {statusData.statuses.map((row) => (
-                  <tr key={row.user.id} className="border-t border-slate-100 text-slate-700">
+                  <tr key={row.user.id} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
                     <td className="px-3 py-2">{row.user.name}</td>
                     <td className="px-3 py-2">{row.manager?.name || '-'}</td>
                     <td className="px-3 py-2">{row.assigned ? 'Yes' : 'No'}</td>
@@ -740,7 +833,7 @@ const HRPanel = ({ user }) => {
             </thead>
             <tbody>
               {pendingApprovals.map((item) => (
-                <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                <tr key={item.id} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
                   <td className="px-3 py-2">{item.user?.name || '-'}</td>
                   <td className="px-3 py-2">{item.manager?.name || '-'}</td>
                   <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
@@ -777,7 +870,7 @@ const HRPanel = ({ user }) => {
             </thead>
             <tbody>
               {printableTimesheets.map((item) => (
-                <tr key={`hr-print-${item.id}`} className="border-t border-slate-100 text-slate-700">
+                <tr key={`hr-print-${item.id}`} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
                   <td className="px-3 py-2">{item.user?.name || '-'}</td>
                   <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
                   <td className="px-3 py-2">
@@ -885,7 +978,7 @@ const ManagerPanel = ({ user }) => {
             </thead>
             <tbody>
               {queue.map((item) => (
-                <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                <tr key={item.id} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
                   <td className="px-3 py-2">{item.user?.name || '-'}</td>
                   <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
                   <td className="px-3 py-2">
@@ -996,7 +1089,7 @@ const HRHeadPanel = ({ user }) => {
             </thead>
             <tbody>
               {queue.map((item) => (
-                <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                <tr key={item.id} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
                   <td className="px-3 py-2">{item.user?.name || '-'}</td>
                   <td className="px-3 py-2">{item.manager?.name || '-'}</td>
                   <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
@@ -1106,7 +1199,7 @@ const CeoPanel = ({ user }) => {
             </thead>
             <tbody>
               {queue.map((item) => (
-                <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                <tr key={item.id} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
                   <td className="px-3 py-2">{item.manager?.name || item.user?.name || '-'}</td>
                   <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
                   <td className="px-3 py-2">
@@ -1152,30 +1245,25 @@ const CeoPanel = ({ user }) => {
 };
 
 const AdminPanel = ({ user }) => {
+  const [users, setUsers] = useState([]);
   const [submittedTimesheets, setSubmittedTimesheets] = useState([]);
-  const [statusFrom, setStatusFrom] = useState(toISODate(new Date()));
-  const [statusTo, setStatusTo] = useState(toISODate(new Date()));
-  const [statusData, setStatusData] = useState(null);
   const [viewingTimesheet, setViewingTimesheet] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [resettingUserId, setResettingUserId] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [openPeriodKey, setOpenPeriodKey] = useState('');
 
-  const loadAdminData = useCallback(async (fromValue, toValue) => {
+  const loadAdminData = useCallback(async () => {
     setLoading(true);
     setFeedback('');
 
     try {
-      const [submittedResponse, statusResponse] = await Promise.all([
+      const [usersResponse, submittedResponse] = await Promise.all([
+        api.get('/auth/admin/users'),
         api.get('/timesheets/printable'),
-        api.get('/timesheets/dispatch/status', {
-          params: {
-            from: fromValue,
-            to: toValue,
-          },
-        }),
       ]);
-      setSubmittedTimesheets(submittedResponse.data);
-      setStatusData(statusResponse.data);
+      setUsers(usersResponse.data || []);
+      setSubmittedTimesheets(submittedResponse.data || []);
     } catch (error) {
       setFeedback(error.response?.data?.message || 'Unable to load admin data');
     } finally {
@@ -1184,8 +1272,38 @@ const AdminPanel = ({ user }) => {
   }, []);
 
   useEffect(() => {
-    loadAdminData(statusFrom, statusTo);
-  }, [statusFrom, statusTo, loadAdminData]);
+    loadAdminData();
+  }, [loadAdminData]);
+
+  const groupedTimesheets = useMemo(() => groupPayrollTimesheetsByPeriod(submittedTimesheets), [submittedTimesheets]);
+
+  useEffect(() => {
+    if (!groupedTimesheets.length) {
+      setOpenPeriodKey('');
+      return;
+    }
+
+    setOpenPeriodKey((currentKey) => currentKey || groupedTimesheets[0].key);
+  }, [groupedTimesheets]);
+
+  const handleResetRequest = async (targetUser) => {
+    const confirmed = window.confirm(`Send password reset email to ${targetUser.name}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setResettingUserId(targetUser.id);
+    setFeedback('');
+
+    try {
+      const response = await api.post('/auth/admin/request-password-reset', { userId: targetUser.id });
+      setFeedback(response.data?.message || 'Password reset email sent successfully.');
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to send password reset email.');
+    } finally {
+      setResettingUserId('');
+    }
+  };
 
   return (
     <>
@@ -1208,119 +1326,155 @@ const AdminPanel = ({ user }) => {
       </header>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-800">HR Head Approved Timesheets (Printable)</h2>
-          <div>
-            <label className="text-sm font-medium text-slate-700" htmlFor="adminStatusFrom">
-              Status From
-            </label>
-            <input
-              id="adminStatusFrom"
-              type="date"
-              value={statusFrom}
-              onChange={(event) => setStatusFrom(event.target.value)}
-              className="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-slate-700" htmlFor="adminStatusTo">
-              Status To
-            </label>
-            <input
-              id="adminStatusTo"
-              type="date"
-              value={statusTo}
-              onChange={(event) => setStatusTo(event.target.value)}
-              className="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
+        <h2 className="text-lg font-semibold text-slate-800">User Records</h2>
+        <p className="mt-1 text-sm text-slate-600">View all accounts and trigger password reset emails when requested.</p>
 
         {feedback ? <p className="mt-3 text-sm text-slate-700">{feedback}</p> : null}
 
         {loading ? (
           <p className="mt-3 text-sm text-slate-700">Loading admin data...</p>
         ) : (
-          <>
-            <div className="mt-3 overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
-                  <tr>
-                    <th className="px-3 py-2">Staff</th>
-                    <th className="px-3 py-2">Period</th>
-                    <th className="px-3 py-2">Workflow Status</th>
-                    <th className="px-3 py-2">Total Hours</th>
-                    <th className="px-3 py-2">Submitted At</th>
-                    <th className="px-3 py-2">View</th>
-                    <th className="px-3 py-2">Print</th>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+                <tr>
+                  <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">Email</th>
+                  <th className="px-3 py-2">Role</th>
+                  <th className="px-3 py-2">Supervisor</th>
+                  <th className="px-3 py-2">Created</th>
+                  <th className="px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((record) => (
+                  <tr key={record.id} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
+                    <td className="px-3 py-2">{record.name}</td>
+                    <td className="px-3 py-2">{record.email}</td>
+                    <td className="px-3 py-2">{record.role}</td>
+                    <td className="px-3 py-2">{record.manager?.name || '-'}</td>
+                    <td className="px-3 py-2">{record.createdAt ? dayjs(record.createdAt).format('MMM D, YYYY') : '-'}</td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => handleResetRequest(record)}
+                        disabled={resettingUserId === record.id}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
+                      >
+                        {resettingUserId === record.id ? 'Sending...' : 'Send Reset Email'}
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {submittedTimesheets.map((item) => (
-                    <tr key={item.id} className="border-t border-slate-100 text-slate-700">
-                      <td className="px-3 py-2">{item.user?.name || 'Unknown User'}</td>
-                      <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
-                      <td className="px-3 py-2">{STATUS_LABELS[item.status] || item.status || '-'}</td>
-                      <td className="px-3 py-2">{Number(item.totalHours || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2">
-                        {item.submittedAt ? dayjs(item.submittedAt).format('MMM D, YYYY h:mm A') : '-'}
-                      </td>
-                      <td className="px-3 py-2">
-                        <button
-                          onClick={() => setViewingTimesheet(item)}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
-                        >
-                          View
-                        </button>
-                      </td>
-                      <td className="px-3 py-2">
-                        <button
-                          onClick={() => printSubmittedTimesheet(item, setFeedback)}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
-                        >
-                          Print
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-            <div className="mt-6 overflow-x-auto">
-              <h3 className="text-base font-semibold text-slate-800">Submission Status by Pay Period</h3>
-              {statusData ? (
-                <p className="mt-1 text-sm text-slate-600">Period: {formatRange(statusData.periodStart, statusData.periodEnd)}</p>
-              ) : null}
-              <table className="mt-2 min-w-full text-sm">
-                <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
-                  <tr>
-                    <th className="px-3 py-2">Staff</th>
-                    <th className="px-3 py-2">Manager</th>
-                    <th className="px-3 py-2">Assigned</th>
-                    <th className="px-3 py-2">Submitted</th>
-                    <th className="px-3 py-2">Workflow Status</th>
-                    <th className="px-3 py-2">Submitted At</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(statusData?.statuses || []).map((row) => (
-                    <tr key={`status-${row.user.id}`} className="border-t border-slate-100 text-slate-700">
-                      <td className="px-3 py-2">{row.user.name}</td>
-                      <td className="px-3 py-2">{row.manager?.name || '-'}</td>
-                      <td className="px-3 py-2">{row.assigned ? 'Yes' : 'No'}</td>
-                      <td className="px-3 py-2">{row.submitted ? 'Yes' : 'No'}</td>
-                      <td className="px-3 py-2">{STATUS_LABELS[row.status] || row.status || '-'}</td>
-                      <td className="px-3 py-2">
-                        {row.submittedAt ? dayjs(row.submittedAt).format('MMM D, YYYY h:mm A') : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">Approved Timesheets for Payroll</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Same grouped payroll view: latest pay period opens by default, with per-period print-all.
+        </p>
+
+        {loading ? (
+          <p className="mt-4 text-sm text-slate-600">Loading timesheets...</p>
+        ) : groupedTimesheets.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-600">No HR-approved timesheets available for payroll processing.</p>
+        ) : (
+          <div className="mt-4 space-y-4">
+            {groupedTimesheets.map((group) => {
+              const isOpen = openPeriodKey === group.key;
+
+              return (
+                <div key={group.key} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setOpenPeriodKey(isOpen ? '' : group.key)}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                  >
+                    <div>
+                      <h3 className="text-base font-semibold text-slate-800">
+                        {formatRange(group.periodStart, group.periodEnd)}
+                      </h3>
+                      <p className="text-sm text-slate-600">
+                        {group.items.length} approved timesheet{group.items.length === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <span className="rounded-lg bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">
+                      {isOpen ? 'Collapse' : 'Expand'}
+                    </span>
+                  </button>
+
+                  {isOpen ? (
+                    <div className="border-t border-slate-200 bg-white p-4">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm text-slate-600">
+                          Print or review the approved staff sheets for this pay period.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => printSubmittedTimesheets(group.items, (error) => setFeedback(error))}
+                          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                        >
+                          Print All in Period
+                        </button>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+                            <tr>
+                              <th className="px-3 py-2">Staff</th>
+                              <th className="px-3 py-2">Manager</th>
+                              <th className="px-3 py-2">Total Hours</th>
+                              <th className="px-3 py-2">Submitted At</th>
+                              <th className="px-3 py-2">HR Approved At</th>
+                              <th className="px-3 py-2">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.items.map((item) => (
+                              <tr key={item.id} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
+                                <td className="px-3 py-2">{item.user?.name || '-'}</td>
+                                <td className="px-3 py-2">{item.manager?.name || '-'}</td>
+                                <td className="px-3 py-2">{Number(item.totalHours || 0).toFixed(2)}</td>
+                                <td className="px-3 py-2">
+                                  {item.submittedAt ? dayjs(item.submittedAt).format('MMM D, YYYY') : '-'}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {item.hrHeadReviewedAt ? dayjs(item.hrHeadReviewedAt).format('MMM D, YYYY') : '-'}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setViewingTimesheet(item)}
+                                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                    >
+                                      View
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => printSubmittedTimesheet(item, (error) => setFeedback(error))}
+                                      className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                                    >
+                                      Print
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         )}
       </section>
 
@@ -1334,6 +1488,7 @@ const PayrollPanel = ({ user }) => {
   const [viewingTimesheet, setViewingTimesheet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
+  const [openPeriodKey, setOpenPeriodKey] = useState('');
 
   const loadPayrollData = useCallback(async () => {
     setLoading(true);
@@ -1341,7 +1496,7 @@ const PayrollPanel = ({ user }) => {
 
     try {
       const response = await api.get('/timesheets/printable');
-      setSubmittedTimesheets(response.data);
+      setSubmittedTimesheets(response.data || []);
     } catch (error) {
       setFeedback(error.response?.data?.message || 'Unable to load payroll timesheets');
     } finally {
@@ -1353,8 +1508,23 @@ const PayrollPanel = ({ user }) => {
     loadPayrollData();
   }, [loadPayrollData]);
 
+  const groupedTimesheets = useMemo(() => groupPayrollTimesheetsByPeriod(submittedTimesheets), [submittedTimesheets]);
+
+  useEffect(() => {
+    if (!groupedTimesheets.length) {
+      setOpenPeriodKey('');
+      return;
+    }
+
+    setOpenPeriodKey((currentKey) => currentKey || groupedTimesheets[0].key);
+  }, [groupedTimesheets]);
+
   const handlePrint = (timesheet, onError) => {
     printSubmittedTimesheet(timesheet, onError);
+  };
+
+  const handlePrintAllForPeriod = (timesheets, onError) => {
+    printSubmittedTimesheets(timesheets, onError);
   };
 
   return (
@@ -1371,60 +1541,105 @@ const PayrollPanel = ({ user }) => {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-800">Approved Timesheets for Payroll</h2>
-        <p className="mt-1 text-sm text-slate-600">View and print submitted pay periods for payroll processing.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          View approved pay periods in separate groups. The latest pay period opens by default.
+        </p>
         {feedback ? <p className="mt-2 text-sm text-red-600">{feedback}</p> : null}
 
         {loading ? (
           <p className="mt-4 text-sm text-slate-600">Loading timesheets...</p>
-        ) : submittedTimesheets.length === 0 ? (
+        ) : groupedTimesheets.length === 0 ? (
           <p className="mt-4 text-sm text-slate-600">No HR-approved timesheets available for payroll processing.</p>
         ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
-                <tr>
-                  <th className="px-3 py-2">Staff</th>
-                  <th className="px-3 py-2">Manager</th>
-                  <th className="px-3 py-2">Period</th>
-                  <th className="px-3 py-2">Total Hours</th>
-                  <th className="px-3 py-2">Submitted At</th>
-                  <th className="px-3 py-2">HR Approved At</th>
-                  <th className="px-3 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {submittedTimesheets.map((item) => (
-                  <tr key={item.id} className="border-t border-slate-100 text-slate-700">
-                    <td className="px-3 py-2">{item.user?.name || '-'}</td>
-                    <td className="px-3 py-2">{item.manager?.name || '-'}</td>
-                    <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
-                    <td className="px-3 py-2">{Number(item.totalHours || 0).toFixed(2)}</td>
-                    <td className="px-3 py-2">
-                      {item.submittedAt ? dayjs(item.submittedAt).format('MMM D, YYYY') : '-'}
-                    </td>
-                    <td className="px-3 py-2">
-                      {item.hrHeadReviewedAt ? dayjs(item.hrHeadReviewedAt).format('MMM D, YYYY') : '-'}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex gap-2">
+          <div className="mt-4 space-y-4">
+            {groupedTimesheets.map((group) => {
+              const isOpen = openPeriodKey === group.key;
+
+              return (
+                <div key={group.key} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setOpenPeriodKey(isOpen ? '' : group.key)}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                  >
+                    <div>
+                      <h3 className="text-base font-semibold text-slate-800">
+                        {formatRange(group.periodStart, group.periodEnd)}
+                      </h3>
+                      <p className="text-sm text-slate-600">{group.items.length} approved timesheet{group.items.length === 1 ? '' : 's'}</p>
+                    </div>
+                    <span className="rounded-lg bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">
+                      {isOpen ? 'Collapse' : 'Expand'}
+                    </span>
+                  </button>
+
+                  {isOpen ? (
+                    <div className="border-t border-slate-200 bg-white p-4">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm text-slate-600">
+                          Print or review the approved staff sheets for this pay period.
+                        </p>
                         <button
-                          onClick={() => setViewingTimesheet(item)}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          type="button"
+                          onClick={() => handlePrintAllForPeriod(group.items, (error) => setFeedback(error))}
+                          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
                         >
-                          View
-                        </button>
-                        <button
-                          onClick={() => handlePrint(item, (error) => setFeedback(error))}
-                          className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
-                        >
-                          Print
+                          Print All in Period
                         </button>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+                            <tr>
+                              <th className="px-3 py-2">Staff</th>
+                              <th className="px-3 py-2">Manager</th>
+                              <th className="px-3 py-2">Total Hours</th>
+                              <th className="px-3 py-2">Submitted At</th>
+                              <th className="px-3 py-2">HR Approved At</th>
+                              <th className="px-3 py-2">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.items.map((item) => (
+                              <tr key={item.id} className="border-t border-slate-100 text-slate-700 transition-colors hover:bg-slate-200 hover:text-slate-900">
+                                <td className="px-3 py-2">{item.user?.name || '-'}</td>
+                                <td className="px-3 py-2">{item.manager?.name || '-'}</td>
+                                <td className="px-3 py-2">{Number(item.totalHours || 0).toFixed(2)}</td>
+                                <td className="px-3 py-2">
+                                  {item.submittedAt ? dayjs(item.submittedAt).format('MMM D, YYYY') : '-'}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {item.hrHeadReviewedAt ? dayjs(item.hrHeadReviewedAt).format('MMM D, YYYY') : '-'}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setViewingTimesheet(item)}
+                                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                    >
+                                      View
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePrint(item, (error) => setFeedback(error))}
+                                      className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                                    >
+                                      Print
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
