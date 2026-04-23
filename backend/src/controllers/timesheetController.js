@@ -33,6 +33,15 @@ const canonicalizeRole = (role) => {
 };
 
 const ASSIGNABLE_ROLES = ['staff', 'manager'];
+const DEFAULT_CUSTOM_TYPES = [
+  'Regular Hours',
+  'Overtime',
+  'Half Day - Morning',
+  'Half Day - Afternoon',
+  'Sick Leave',
+  'Vacation Leave',
+  'Off Day',
+];
 
 const mapResponse = (timesheetDoc) => {
   const json = timesheetDoc.toObject();
@@ -155,7 +164,7 @@ const saveTimesheetByDate = async (req, res) => {
     ? req.body.customTypes
         .filter((type) => typeof type === 'string' && type.trim())
         .map((type) => type.trim())
-    : ['Regular Hours', 'Overtime', 'Half Day', 'Sick Leave', 'Vacation Leave'];
+    : DEFAULT_CUSTOM_TYPES;
 
   const timesheet = await Timesheet.findOneAndUpdate(
     { _id: existing._id },
@@ -275,7 +284,7 @@ const sendOutTimesheets = async (req, res) => {
       periodStart,
       periodEnd,
       entries,
-      customTypes: ['Regular Hours', 'Overtime', 'Half Day', 'Sick Leave', 'Vacation Leave'],
+      customTypes: DEFAULT_CUSTOM_TYPES,
       totalHours: sumHours(entries),
       submittedAt: null,
       status: APPROVAL_STATUSES.DRAFT,
@@ -397,6 +406,20 @@ const getAllSubmittedTimesheets = async (_req, res) => {
     .populate('ceo', 'name email')
     .sort({ submittedAt: -1 })
     .limit(100);
+
+  return res.json(timesheets.map(mapResponse));
+};
+
+const getPrintableTimesheets = async (_req, res) => {
+  const timesheets = await Timesheet.find({
+    status: APPROVAL_STATUSES.HR_HEAD_APPROVED,
+    submittedAt: { $ne: null },
+  })
+    .populate('user', 'name email role')
+    .populate('manager', 'name email')
+    .populate('ceo', 'name email')
+    .sort({ hrHeadReviewedAt: -1, submittedAt: -1 })
+    .limit(200);
 
   return res.json(timesheets.map(mapResponse));
 };
@@ -557,6 +580,7 @@ module.exports = {
   getSubmissionStatusByRange,
   getLatestDispatchedPeriod,
   getAllSubmittedTimesheets,
+  getPrintableTimesheets,
   getRecentTimesheets,
   getManagerApprovalQueue,
   managerReviewTimesheet,

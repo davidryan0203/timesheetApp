@@ -7,7 +7,15 @@ import TimesheetTable from '../components/TimesheetTable';
 import SubmittedTimesheetModal from '../components/SubmittedTimesheetModal';
 import { formatDateLabel, formatDayLabel, formatRange, toISODate } from '../utils/date';
 
-const TYPE_OPTIONS = ['Regular Hours', 'Overtime', 'Half Day', 'Sick Leave', 'Vacation Leave', 'Off Day'];
+const TYPE_OPTIONS = [
+  'Regular Hours',
+  'Overtime',
+  'Half Day - Morning',
+  'Half Day - Afternoon',
+  'Sick Leave',
+  'Vacation Leave',
+  'Off Day',
+];
 
 const STATUS_LABELS = {
   draft: 'Draft',
@@ -33,10 +41,140 @@ const getDefaultHours = (entryType) => {
   if (entryType === 'Off Day') {
     return 0;
   }
+  if (entryType === 'Half Day - Morning') {
+    return 4;
+  }
+  if (entryType === 'Half Day - Afternoon') {
+    return 3;
+  }
   if (entryType === 'Half Day') {
     return 3.5;
   }
   return 7;
+};
+
+const escapeHtml = (value) => {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
+const printSubmittedTimesheet = (timesheet, onError) => {
+  if (!timesheet) {
+    return;
+  }
+
+  const rowsHtml = (timesheet.entries || [])
+    .map(
+      (entry) => `
+        <tr>
+          <td>${escapeHtml(formatDateLabel(entry.dateOnly || entry.date))}</td>
+          <td>${escapeHtml(formatDayLabel(entry.dateOnly || entry.date))}</td>
+          <td>${escapeHtml(entry.entryType || 'Regular Hours')}</td>
+          <td>${Number(entry.hours || 0).toFixed(2)}</td>
+          <td>${Number(entry.overtimeHours || 0).toFixed(2)}</td>
+          <td>${escapeHtml(entry.notes || '-')}</td>
+        </tr>
+      `
+    )
+    .join('');
+
+  const safeRowsHtml = rowsHtml || '<tr><td colspan="6">No entries found</td></tr>';
+
+  const submittedLabel = timesheet.submittedAt ? dayjs(timesheet.submittedAt).format('MMM D, YYYY h:mm A') : '-';
+  const approvedLabel = timesheet.hrHeadReviewedAt
+    ? dayjs(timesheet.hrHeadReviewedAt).format('MMM D, YYYY h:mm A')
+    : '-';
+
+  const html = `<!doctype html>
+    <html>
+      <head>
+        <title></title>
+        <meta charset="utf-8" />
+        <style>
+          @page { margin: 12mm; }
+          body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
+          h1 { margin: 0 0 8px; }
+          .meta { margin: 0 0 4px; font-size: 14px; color: #334155; }
+          table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+          th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-size: 12px; }
+          th { background: #f1f5f9; }
+          .total { margin-top: 12px; font-weight: 700; }
+        </style>
+      </head>
+      <body>
+        <h1>HR Head Approved Timesheet</h1>
+        <p class="meta">Staff: ${escapeHtml(timesheet.user?.name || 'Unknown')} (${escapeHtml(timesheet.user?.email || '-')})</p>
+        <p class="meta">Period: ${escapeHtml(formatRange(timesheet.periodStart, timesheet.periodEnd))}</p>
+        <p class="meta">Submitted: ${escapeHtml(submittedLabel)}</p>
+        <p class="meta">HR Head Approved: ${escapeHtml(approvedLabel)}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Day</th>
+              <th>Type</th>
+              <th>Hours</th>
+              <th>Overtime</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>${safeRowsHtml}</tbody>
+        </table>
+        <p class="total">Total Hours: ${Number(timesheet.totalHours || 0).toFixed(2)}</p>
+      </body>
+    </html>
+  `;
+
+  try {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('title', 'timesheet-print-frame');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.visibility = 'hidden';
+
+    const cleanup = () => {
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
+
+    iframe.onload = () => {
+      const contentWindow = iframe.contentWindow;
+      if (!contentWindow) {
+        cleanup();
+        onError?.('Unable to prepare the print preview. Please try again.');
+        return;
+      }
+
+      // Cleanup after the print dialog closes.
+      contentWindow.onafterprint = cleanup;
+
+      setTimeout(() => {
+        try {
+          contentWindow.focus();
+          contentWindow.print();
+          // Fallback cleanup if onafterprint is not triggered.
+          setTimeout(cleanup, 2000);
+        } catch {
+          cleanup();
+          onError?.('Unable to print this report. Please try again.');
+        }
+      }, 100);
+    };
+
+    iframe.srcdoc = html;
+    document.body.appendChild(iframe);
+  } catch {
+    onError?.('Unable to prepare the print report. Please try again.');
+  }
 };
 
 const normalizeEntriesForUi = (entries = []) => {
@@ -340,6 +478,7 @@ const HRPanel = ({ user }) => {
   const [periodTo, setPeriodTo] = useState('');
   const [statusData, setStatusData] = useState(null);
   const [pendingApprovals, setPendingApprovals] = useState([]);
+  const [printableTimesheets, setPrintableTimesheets] = useState([]);
   const [viewingTimesheet, setViewingTimesheet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -349,7 +488,7 @@ const HRPanel = ({ user }) => {
   const loadStatus = useCallback(async (fromValue, toValue) => {
     setLoading(true);
     try {
-      const [statusResponse, hrReviewResponse] = await Promise.all([
+      const [statusResponse, hrReviewResponse, printableResponse] = await Promise.all([
         api.get('/timesheets/dispatch/status', {
           params: {
             from: fromValue,
@@ -357,9 +496,11 @@ const HRPanel = ({ user }) => {
           },
         }),
         api.get('/timesheets/hr/pending'),
+        api.get('/timesheets/printable'),
       ]);
       setStatusData(statusResponse.data);
       setPendingApprovals(hrReviewResponse.data || []);
+      setPrintableTimesheets(printableResponse.data || []);
     } catch (error) {
       setFeedback(error.response?.data?.message || 'Unable to load submission status');
     } finally {
@@ -564,6 +705,53 @@ const HRPanel = ({ user }) => {
                       className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
                     >
                       View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">HR Head Approved Timesheets (Printable)</h2>
+        <p className="mt-1 text-sm text-slate-600">HR and Admin can print these approved reports.</p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+              <tr>
+                <th className="px-3 py-2">Staff</th>
+                <th className="px-3 py-2">Period</th>
+                <th className="px-3 py-2">Approved At</th>
+                <th className="px-3 py-2">Total Hours</th>
+                <th className="px-3 py-2">View</th>
+                <th className="px-3 py-2">Print</th>
+              </tr>
+            </thead>
+            <tbody>
+              {printableTimesheets.map((item) => (
+                <tr key={`hr-print-${item.id}`} className="border-t border-slate-100 text-slate-700">
+                  <td className="px-3 py-2">{item.user?.name || '-'}</td>
+                  <td className="px-3 py-2">{formatRange(item.periodStart, item.periodEnd)}</td>
+                  <td className="px-3 py-2">
+                    {item.hrHeadReviewedAt ? dayjs(item.hrHeadReviewedAt).format('MMM D, YYYY h:mm A') : '-'}
+                  </td>
+                  <td className="px-3 py-2">{Number(item.totalHours || 0).toFixed(2)}</td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => setViewingTimesheet(item)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                    >
+                      View
+                    </button>
+                  </td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => printSubmittedTimesheet(item, setFeedback)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                    >
+                      Print
                     </button>
                   </td>
                 </tr>
@@ -926,84 +1114,13 @@ const AdminPanel = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
 
-  const printTimesheet = (timesheet) => {
-    if (!timesheet) {
-      return;
-    }
-
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1000,height=800');
-    if (!printWindow) {
-      setFeedback('Popup blocked. Please allow popups to print timesheets.');
-      return;
-    }
-
-    const rowsHtml = (timesheet.entries || [])
-      .map(
-        (entry) => `
-          <tr>
-            <td>${formatDateLabel(entry.dateOnly || entry.date)}</td>
-            <td>${formatDayLabel(entry.dateOnly || entry.date)}</td>
-            <td>${entry.entryType || 'Regular Hours'}</td>
-            <td>${Number(entry.hours || 0).toFixed(2)}</td>
-            <td>${Number(entry.overtimeHours || 0).toFixed(2)}</td>
-            <td>${entry.notes || '-'}</td>
-          </tr>
-        `
-      )
-      .join('');
-
-    const html = `
-      <html>
-        <head>
-          <title>Timesheet Print</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
-            h1 { margin: 0 0 8px; }
-            .meta { margin: 0 0 4px; font-size: 14px; color: #334155; }
-            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-size: 12px; }
-            th { background: #f1f5f9; }
-            .total { margin-top: 12px; font-weight: 700; }
-          </style>
-        </head>
-        <body>
-          <h1>Submitted Timesheet</h1>
-          <p class="meta">Staff: ${timesheet.user?.name || 'Unknown'} (${timesheet.user?.email || '-'})</p>
-          <p class="meta">Period: ${formatRange(timesheet.periodStart, timesheet.periodEnd)}</p>
-          <p class="meta">Submitted: ${
-            timesheet.submittedAt ? dayjs(timesheet.submittedAt).format('MMM D, YYYY h:mm A') : '-'
-          }</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Day</th>
-                <th>Type</th>
-                <th>Hours</th>
-                <th>Overtime</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-          <p class="total">Total Hours: ${Number(timesheet.totalHours || 0).toFixed(2)}</p>
-          <script>window.print();</script>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-  };
-
   const loadAdminData = useCallback(async (fromValue, toValue) => {
     setLoading(true);
     setFeedback('');
 
     try {
       const [submittedResponse, statusResponse] = await Promise.all([
-        api.get('/timesheets/admin/submitted'),
+        api.get('/timesheets/printable'),
         api.get('/timesheets/dispatch/status', {
           params: {
             from: fromValue,
@@ -1046,7 +1163,7 @@ const AdminPanel = ({ user }) => {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-800">Submitted Timesheets (All Staff)</h2>
+          <h2 className="text-lg font-semibold text-slate-800">HR Head Approved Timesheets (Printable)</h2>
           <div>
             <label className="text-sm font-medium text-slate-700" htmlFor="adminStatusFrom">
               Status From
@@ -1113,7 +1230,7 @@ const AdminPanel = ({ user }) => {
                       </td>
                       <td className="px-3 py-2">
                         <button
-                          onClick={() => printTimesheet(item)}
+                          onClick={() => printSubmittedTimesheet(item, setFeedback)}
                           className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700"
                         >
                           Print

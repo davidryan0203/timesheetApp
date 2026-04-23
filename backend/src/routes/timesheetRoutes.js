@@ -7,6 +7,7 @@ const {
   getSubmissionStatusByRange,
   getLatestDispatchedPeriod,
   getAllSubmittedTimesheets,
+  getPrintableTimesheets,
   getRecentTimesheets,
   getManagerApprovalQueue,
   managerReviewTimesheet,
@@ -57,6 +58,7 @@ router.post(
 
 router.get('/dispatch/status', requireRoles('hr', 'admin'), getSubmissionStatusByRange);
 router.get('/dispatch/latest-period', requireRoles('hr', 'admin'), getLatestDispatchedPeriod);
+router.get('/printable', requireRoles('hr', 'admin'), getPrintableTimesheets);
 router.get('/manager/pending', requireRoles('manager'), getManagerApprovalQueue);
 router.post(
   '/manager/review/:id',
