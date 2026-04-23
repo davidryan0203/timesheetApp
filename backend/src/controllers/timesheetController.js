@@ -36,6 +36,7 @@ const ASSIGNABLE_ROLES = ['staff', 'manager'];
 const DEFAULT_CUSTOM_TYPES = [
   'Regular Hours',
   'Overtime',
+  'Custom Hours',
   'Half Day - Morning',
   'Half Day - Afternoon',
   'Sick Leave',

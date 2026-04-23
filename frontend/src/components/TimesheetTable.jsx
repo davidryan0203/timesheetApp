@@ -1,8 +1,20 @@
 import { formatDateLabel, formatDayLabel } from '../utils/date';
 
-const TimesheetTable = ({ entries, typeOptions, onEntryChange }) => {
+const TimesheetTable = ({ entries, typeOptions, onEntryChange, onAddCustomEntry }) => {
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+      {onAddCustomEntry ? (
+        <div className="border-b border-slate-200 p-3">
+          <button
+            type="button"
+            onClick={onAddCustomEntry}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+          >
+            + Add Custom Hours
+          </button>
+        </div>
+      ) : null}
+
       <table className="min-w-full text-sm">
         <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
           <tr>
@@ -17,9 +29,26 @@ const TimesheetTable = ({ entries, typeOptions, onEntryChange }) => {
         </thead>
         <tbody>
           {entries.map((entry, index) => (
-            <tr key={entry.dateOnly || entry.date} className="border-t border-slate-100 text-slate-700">
-              <td className="whitespace-nowrap px-3 py-2">{formatDateLabel(entry.dateOnly || entry.date)}</td>
-              <td className="whitespace-nowrap px-3 py-2">{formatDayLabel(entry.dateOnly || entry.date)}</td>
+            <tr key={entry.id || entry.dateOnly || entry.date || index} className="border-t border-slate-100 text-slate-700">
+              <td className="whitespace-nowrap px-3 py-2">
+                {entry.isCustomEntry ? (
+                  <input
+                    type="date"
+                    value={entry.dateOnly || ''}
+                    onChange={(event) => onEntryChange(index, 'dateOnly', event.target.value)}
+                    className="rounded-lg border border-slate-300 bg-white px-2 py-1"
+                  />
+                ) : (
+                  formatDateLabel(entry.dateOnly || entry.date)
+                )}
+              </td>
+              <td className="whitespace-nowrap px-3 py-2">
+                {entry.isCustomEntry ? (
+                  <span className="text-slate-500">Custom</span>
+                ) : (
+                  formatDayLabel(entry.dateOnly || entry.date)
+                )}
+              </td>
               <td className="px-3 py-2">
                 <select
                   value={entry.entryType || 'Regular Hours'}

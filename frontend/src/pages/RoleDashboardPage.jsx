@@ -10,6 +10,7 @@ import { formatDateLabel, formatDayLabel, formatRange, toISODate } from '../util
 const TYPE_OPTIONS = [
   'Regular Hours',
   'Overtime',
+  'Custom Hours',
   'Half Day - Morning',
   'Half Day - Afternoon',
   'Sick Leave',
@@ -39,6 +40,9 @@ const normalizeHours = (value, fallback = 0) => {
 
 const getDefaultHours = (entryType) => {
   if (entryType === 'Off Day') {
+    return 0;
+  }
+  if (entryType === 'Custom Hours') {
     return 0;
   }
   if (entryType === 'Half Day - Morning') {
@@ -282,9 +286,20 @@ const StaffPanel = ({
         }
 
         const nextEntry = { ...entry, [field]: value };
+        if (field === 'dateOnly') {
+          nextEntry.date = value;
+        }
         if (field === 'entryType') {
-          nextEntry.hours = getDefaultHours(value);
-          nextEntry.overtimeHours = value === 'Overtime' ? normalizeHours(nextEntry.overtimeHours, 0) : 0;
+          if (value === 'Overtime') {
+            nextEntry.hours = normalizeHours(nextEntry.hours, 0);
+            nextEntry.overtimeHours = normalizeHours(nextEntry.overtimeHours, 0);
+          } else if (value === 'Custom Hours') {
+            nextEntry.hours = normalizeHours(nextEntry.hours, 0);
+            nextEntry.overtimeHours = 0;
+          } else {
+            nextEntry.hours = getDefaultHours(value);
+            nextEntry.overtimeHours = 0;
+          }
         }
         if (field === 'hours') {
           nextEntry.hours = normalizeHours(value, getDefaultHours(nextEntry.entryType));
@@ -305,6 +320,32 @@ const StaffPanel = ({
         ...previous,
         entries: normalizedEntries,
         totalHours,
+      };
+    });
+  };
+
+  const addCustomEntry = () => {
+    setTimesheet((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      const fallbackDate = toISODate(previous.periodStart || new Date());
+      const newEntry = {
+        id: `custom-${Date.now()}`,
+        date: fallbackDate,
+        dateOnly: fallbackDate,
+        entryType: 'Custom Hours',
+        notes: '',
+        hours: 0,
+        overtimeHours: 0,
+        isCustomEntry: true,
+      };
+
+      const nextEntries = [...previous.entries, newEntry];
+      return {
+        ...previous,
+        entries: nextEntries,
       };
     });
   };
@@ -437,7 +478,12 @@ const StaffPanel = ({
             </p>
           </div>
 
-          <TimesheetTable entries={timesheet.entries} typeOptions={TYPE_OPTIONS} onEntryChange={onEntryChange} />
+          <TimesheetTable
+            entries={timesheet.entries}
+            typeOptions={TYPE_OPTIONS}
+            onEntryChange={onEntryChange}
+            onAddCustomEntry={addCustomEntry}
+          />
 
           <div className="flex flex-wrap gap-3">
             <button
@@ -1288,7 +1334,7 @@ const RoleDashboardPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-100 via-emerald-50 to-white px-4 py-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl flex-col space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <img src="/logo.png" alt="Company Logo" className="h-14 w-auto object-contain" />
           <button
@@ -1306,9 +1352,10 @@ const RoleDashboardPage = () => {
         {user?.role === 'hr_head' ? <HRHeadPanel user={user} /> : null}
         {user?.role === 'staff' ? <StaffPanel user={user} /> : null}
 
-        <footer className="rounded-xl border border-slate-200 bg-white/70 p-3 text-center text-xs text-slate-600">
-          <strong>For any technical issues, contact: Dexter Dancel</strong>
-          <strong>For HR related concern: Michelle Martin</strong>
+        <footer className="mt-auto rounded-xl border border-slate-200 bg-white/70 p-3 text-center text-xs text-slate-600">
+          <p>For any technical issues, contact: Dexter Dancel</p>
+          <p>For HR related concern: Michelle Martin</p>
+          <p>DEVELOPED BY: MTIE - IT</p>
         </footer>
       </div>
     </div>

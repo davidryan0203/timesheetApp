@@ -76,6 +76,9 @@ const normalizeEntries = (entries = []) => {
     if (normalizedType === 'Off Day') {
       defaultHours = 0;
     }
+    if (normalizedType === 'Custom Hours') {
+      defaultHours = 0;
+    }
     if (normalizedType === 'Half Day - Morning') {
       defaultHours = 4;
     }
