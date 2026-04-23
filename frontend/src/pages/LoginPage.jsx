@@ -31,7 +31,12 @@ const LoginPage = () => {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md items-center px-4">
-      <form onSubmit={handleSubmit} className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
+      <div className="w-full space-y-4">
+        <div className="flex justify-center">
+          <img src="/logo.png" alt="Company Logo" className="h-16 w-auto object-contain" />
+        </div>
+
+        <form onSubmit={handleSubmit} className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
         <h1 className="text-2xl font-semibold text-slate-800">Timesheet Login</h1>
         <p className="mt-1 text-sm text-slate-500">Sign in to submit your bi-weekly timesheet.</p>
 
@@ -75,7 +80,13 @@ const LoginPage = () => {
             Register
           </Link>
         </p>
-      </form>
+        </form>
+
+        <footer className="rounded-xl border border-slate-200 bg-white/70 p-3 text-center text-xs text-slate-600">
+          <strong>For any Technical issues, contact: Dexter Dancel</strong>
+          <strong>For HR related concern: Michelle Martin</strong>
+        </footer>
+      </div>
     </div>
   );
 };

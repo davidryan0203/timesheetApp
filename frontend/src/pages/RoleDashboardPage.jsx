@@ -1289,7 +1289,8 @@ const RoleDashboardPage = () => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-100 via-emerald-50 to-white px-4 py-6">
       <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <img src="/logo.png" alt="Company Logo" className="h-14 w-auto object-contain" />
           <button
             onClick={logout}
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
@@ -1301,9 +1302,14 @@ const RoleDashboardPage = () => {
         {user?.role === 'admin' ? <AdminPanel user={user} /> : null}
         {user?.role === 'hr' ? <HRPanel user={user} /> : null}
         {user?.role === 'manager' ? <ManagerPanel user={user} /> : null}
-          {user?.role === 'ceo' ? <CeoPanel user={user} /> : null}
+        {user?.role === 'ceo' ? <CeoPanel user={user} /> : null}
         {user?.role === 'hr_head' ? <HRHeadPanel user={user} /> : null}
         {user?.role === 'staff' ? <StaffPanel user={user} /> : null}
+
+        <footer className="rounded-xl border border-slate-200 bg-white/70 p-3 text-center text-xs text-slate-600">
+          <strong>For any technical issues, contact: Dexter Dancel</strong>
+          <strong>For HR related concern: Michelle Martin</strong>
+        </footer>
       </div>
     </div>
   );
