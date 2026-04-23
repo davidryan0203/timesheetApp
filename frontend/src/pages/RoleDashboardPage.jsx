@@ -1438,8 +1438,8 @@ const RoleDashboardPage = () => {
   const { user, logout } = useAuth();
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-emerald-50 to-white px-4 py-6">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl flex-col space-y-6">
+    <div className="min-h-dvh bg-gradient-to-b from-slate-100 via-emerald-50 to-white px-4 pb-28 pt-6">
+      <div className="mx-auto flex max-w-6xl flex-col space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <img src="/logo.png" alt="Company Logo" className="h-14 w-auto object-contain" />
           <button
@@ -1458,10 +1458,12 @@ const RoleDashboardPage = () => {
         {user?.role === 'payroll' ? <PayrollPanel user={user} /> : null}
         {user?.role === 'staff' ? <StaffPanel user={user} /> : null}
 
-        <footer className="mt-auto rounded-xl border border-slate-200 bg-white/70 p-3 text-center text-xs text-slate-600">
-          <p>For any technical issues, contact: Dexter Dancel</p>
-          <p>For HR related concern: Michelle Martin</p>
-          <p>DEVELOPED BY: MTIE - IT</p>
+        <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 backdrop-blur">
+          <div className="mx-auto w-full max-w-6xl text-center">
+            <p>For any technical issues, contact: Dexter Dancel</p>
+            <p>For HR related concern: Michelle Martin</p>
+            <p>DEVELOPED BY: MTIE - IT</p>
+          </div>
         </footer>
       </div>
     </div>

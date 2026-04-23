@@ -30,7 +30,7 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-6">
+    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pb-28 pt-6">
       <div className="flex w-full flex-1 flex-col space-y-4">
         <div className="flex justify-center">
           <img src="/logo.png" alt="Company Logo" className="h-16 w-auto object-contain" />
@@ -82,10 +82,12 @@ const LoginPage = () => {
           </p>
         </form>
 
-        <footer className="mt-auto rounded-xl border border-slate-200 bg-white/70 p-3 text-center text-xs text-slate-600">
-          <p>For any Technical issues, contact: Dexter Dancel</p>
-          <p>For HR related concern: Michelle Martin</p>
-          <p>DEVELOPED BY: MTIE - IT</p>
+        <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 backdrop-blur">
+          <div className="mx-auto w-full max-w-md text-center">
+            <p>For any Technical issues, contact: Dexter Dancel</p>
+            <p>For HR related concern: Michelle Martin</p>
+            <p>DEVELOPED BY: MTIE - IT</p>
+          </div>
         </footer>
       </div>
     </div>
