@@ -19,7 +19,7 @@ const authMiddleware = async (req, res, next) => {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
 
-    const user = await User.findById(payload.id).select('_id role sessionVersion');
+    const user = await User.findById(payload.id).select('_id role activeRole sessionVersion');
     if (!user) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
@@ -30,9 +30,14 @@ const authMiddleware = async (req, res, next) => {
       return res.status(401).json({ message: 'Session expired. Please login again.' });
     }
 
+    const primaryRole = canonicalizeRole(user.role || payload.primaryRole || payload.role);
+    const activeRole = user.activeRole ? canonicalizeRole(user.activeRole) : null;
+
     req.user = {
       ...payload,
-      role: canonicalizeRole(user.role || payload.role),
+      role: canonicalizeRole(activeRole || primaryRole),
+      primaryRole,
+      activeRole,
     };
     return next();
   } catch (error) {

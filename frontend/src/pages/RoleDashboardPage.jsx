@@ -11,10 +11,13 @@ const TYPE_OPTIONS = [
   'Regular Hours',
   'Overtime',
   'Custom Hours',
-  'Half Day - Morning',
-  'Half Day - Afternoon',
+  'Half-day (Morning) w/o pay',
+  'Half-day (Afternoon) w/o pay',
   'Sick Leave',
   'Vacation Leave',
+  'Time-in-Lieu',
+  'Discretionary Leave',
+  'Non-discretionary Leave',
   'Off Day',
 ];
 
@@ -28,6 +31,16 @@ const STATUS_LABELS = {
   pending_ceo: 'Pending CEO',
   ceo_approved: 'Approved by CEO',
   ceo_rejected: 'Rejected by CEO',
+};
+
+const ROLE_LABELS = {
+  admin: 'Admin',
+  hr: 'HR',
+  manager: 'Manager',
+  staff: 'Staff',
+  ceo: 'CEO',
+  hr_head: 'HR Head',
+  payroll: 'Payroll',
 };
 
 const normalizeHours = (value, fallback = 0) => {
@@ -45,10 +58,10 @@ const getDefaultHours = (entryType) => {
   if (entryType === 'Custom Hours') {
     return 0;
   }
-  if (entryType === 'Half Day - Morning') {
+  if (entryType === 'Half-day (Morning) w/o pay') {
     return 4;
   }
-  if (entryType === 'Half Day - Afternoon') {
+  if (entryType === 'Half-day (Afternoon) w/o pay') {
     return 3;
   }
   if (entryType === 'Half Day') {
@@ -294,6 +307,87 @@ const ApprovalBadge = ({ status }) => {
   );
 };
 
+const ActiveRoleToolbar = ({ user }) => {
+  const { setUser } = useAuth();
+  const [roles, setRoles] = useState([]);
+  const [selectedRole, setSelectedRole] = useState(user?.role || '');
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState('');
+
+  const loadRoles = useCallback(async () => {
+    try {
+      const response = await api.get('/delegations/roles/available');
+      const available = response.data?.roles || [];
+      setRoles(available);
+      setSelectedRole(response.data?.effectiveRole || user?.role || available[0] || '');
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to load available roles');
+    }
+  }, [user?.role]);
+
+  useEffect(() => {
+    loadRoles();
+  }, [loadRoles]);
+
+  const onSwitchRole = async () => {
+    if (!selectedRole) {
+      return;
+    }
+
+    setSaving(true);
+    setFeedback('');
+
+    try {
+      const response = await api.post('/delegations/roles/switch', { role: selectedRole });
+      if (response.data?.user) {
+        setUser(response.data.user);
+      }
+      setFeedback('Active role updated.');
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to switch role');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!user) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800">Current role: {ROLE_LABELS[user.role] || user.role}</h2>
+          <p className="text-xs text-slate-600">Switch to any delegated role assigned by admin.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={selectedRole}
+            onChange={(event) => setSelectedRole(event.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700"
+          >
+            {roles.map((role) => (
+              <option key={role} value={role}>
+                {ROLE_LABELS[role] || role}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={onSwitchRole}
+            disabled={saving || !selectedRole}
+            className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {saving ? 'Updating...' : 'Switch Role'}
+          </button>
+        </div>
+      </div>
+      {feedback ? <p className="mt-2 text-xs text-slate-600">{feedback}</p> : null}
+    </section>
+  );
+};
+
 const StaffPanel = ({
   user,
   panelTitle = 'Staff Timesheet',
@@ -309,6 +403,7 @@ const StaffPanel = ({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [leaveBalances, setLeaveBalances] = useState(null);
 
   const submittedTimesheets = useMemo(() => history.filter((item) => Boolean(item.submittedAt)), [history]);
 
@@ -324,13 +419,17 @@ const StaffPanel = ({
     setLoading(true);
     setFeedback('');
     try {
-      const recentResponse = await api.get('/timesheets/recent');
+      const [recentResponse, leaveResponse] = await Promise.all([
+        api.get('/timesheets/recent'),
+        api.get('/leaves/me'),
+      ]);
       const allTimesheets = recentResponse.data;
       const drafts = allTimesheets.filter(
         (item) =>
           !item.submittedAt || ['manager_rejected', 'ceo_rejected', 'hr_head_rejected'].includes(item.status)
       );
       const submitted = allTimesheets.filter((item) => Boolean(item.submittedAt));
+      setLeaveBalances(leaveResponse.data?.balances || null);
 
       setHistory(allTimesheets);
       setSelectedDraftId(drafts[0]?.id || '');
@@ -549,6 +648,16 @@ const StaffPanel = ({
             View Submitted
           </button>
         </div>
+
+        {leaveBalances ? (
+          <div className="mt-4 grid gap-2 text-xs text-slate-700 md:grid-cols-5">
+            <p className="rounded-lg bg-slate-100 px-2 py-1">Annual: {Number(leaveBalances.annualLeave || 0)}</p>
+            <p className="rounded-lg bg-slate-100 px-2 py-1">Sick: {Number(leaveBalances.sickLeave || 0)}</p>
+            <p className="rounded-lg bg-slate-100 px-2 py-1">Time-in-Lieu: {Number(leaveBalances.timeInLieu || 0)}</p>
+            <p className="rounded-lg bg-slate-100 px-2 py-1">Discretionary: {Number(leaveBalances.discretionaryLeave || 0)}</p>
+            <p className="rounded-lg bg-slate-100 px-2 py-1">Non-discretionary: {Number(leaveBalances.nonDiscretionaryLeave || 0)}</p>
+          </div>
+        ) : null}
       </header>
 
       {loading ? (
@@ -1246,12 +1355,20 @@ const CeoPanel = ({ user }) => {
 
 const AdminPanel = ({ user }) => {
   const [users, setUsers] = useState([]);
+  const [delegations, setDelegations] = useState([]);
   const [submittedTimesheets, setSubmittedTimesheets] = useState([]);
   const [viewingTimesheet, setViewingTimesheet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [resettingUserId, setResettingUserId] = useState('');
+  const [delegating, setDelegating] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [openPeriodKey, setOpenPeriodKey] = useState('');
+  const [delegationForm, setDelegationForm] = useState({
+    staffId: '',
+    delegatedRole: 'manager',
+    reason: '',
+    endDate: '',
+  });
 
   const loadAdminData = useCallback(async () => {
     setLoading(true);
@@ -1264,6 +1381,8 @@ const AdminPanel = ({ user }) => {
       ]);
       setUsers(usersResponse.data || []);
       setSubmittedTimesheets(submittedResponse.data || []);
+      const delegationResponse = await api.get('/delegations?status=active');
+      setDelegations(delegationResponse.data || []);
     } catch (error) {
       setFeedback(error.response?.data?.message || 'Unable to load admin data');
     } finally {
@@ -1302,6 +1421,41 @@ const AdminPanel = ({ user }) => {
       setFeedback(error.response?.data?.message || 'Unable to send password reset email.');
     } finally {
       setResettingUserId('');
+    }
+  };
+
+  const staffUsers = useMemo(
+    () => users.filter((record) => record.primaryRole === 'staff' || record.role === 'staff'),
+    [users]
+  );
+
+  const handleCreateDelegation = async (event) => {
+    event.preventDefault();
+    if (!delegationForm.staffId || !delegationForm.delegatedRole) {
+      setFeedback('Staff and delegated role are required.');
+      return;
+    }
+
+    setDelegating(true);
+    setFeedback('');
+
+    try {
+      await api.post('/delegations', {
+        staffId: delegationForm.staffId,
+        delegatedRole: delegationForm.delegatedRole,
+        reason: delegationForm.reason,
+        endDate: delegationForm.endDate || undefined,
+      });
+
+      setFeedback('Delegation assigned successfully.');
+      setDelegationForm({ staffId: '', delegatedRole: 'manager', reason: '', endDate: '' });
+
+      const delegationResponse = await api.get('/delegations?status=active');
+      setDelegations(delegationResponse.data || []);
+    } catch (error) {
+      setFeedback(error.response?.data?.message || 'Unable to create delegation.');
+    } finally {
+      setDelegating(false);
     }
   };
 
@@ -1476,6 +1630,94 @@ const AdminPanel = ({ user }) => {
             })}
           </div>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800">Role Delegation</h2>
+        <p className="mt-1 text-sm text-slate-600">Assign temporary extra roles to staff accounts.</p>
+
+        <form onSubmit={handleCreateDelegation} className="mt-4 grid gap-3 md:grid-cols-4">
+          <select
+            value={delegationForm.staffId}
+            onChange={(event) =>
+              setDelegationForm((previous) => ({ ...previous, staffId: event.target.value }))
+            }
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Select Staff</option>
+            {staffUsers.map((record) => (
+              <option key={record.id} value={record.id}>
+                {record.name} ({record.email})
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={delegationForm.delegatedRole}
+            onChange={(event) =>
+              setDelegationForm((previous) => ({ ...previous, delegatedRole: event.target.value }))
+            }
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="manager">Manager</option>
+            <option value="hr">HR</option>
+            <option value="ceo">CEO</option>
+            <option value="hr_head">HR Head</option>
+            <option value="payroll">Payroll</option>
+          </select>
+
+          <input
+            type="date"
+            value={delegationForm.endDate}
+            onChange={(event) =>
+              setDelegationForm((previous) => ({ ...previous, endDate: event.target.value }))
+            }
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+
+          <button
+            type="submit"
+            disabled={delegating}
+            className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {delegating ? 'Assigning...' : 'Assign Delegation'}
+          </button>
+
+          <input
+            type="text"
+            value={delegationForm.reason}
+            onChange={(event) =>
+              setDelegationForm((previous) => ({ ...previous, reason: event.target.value }))
+            }
+            placeholder="Reason (optional)"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-4"
+          />
+        </form>
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+              <tr>
+                <th className="px-3 py-2">Staff</th>
+                <th className="px-3 py-2">Delegated Role</th>
+                <th className="px-3 py-2">Start</th>
+                <th className="px-3 py-2">End</th>
+                <th className="px-3 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {delegations.map((item) => (
+                <tr key={item.id} className="border-t border-slate-100 text-slate-700">
+                  <td className="px-3 py-2">{item.staff?.name || '-'}</td>
+                  <td className="px-3 py-2">{ROLE_LABELS[item.delegatedRole] || item.delegatedRole}</td>
+                  <td className="px-3 py-2">{item.startDate ? dayjs(item.startDate).format('MMM D, YYYY') : '-'}</td>
+                  <td className="px-3 py-2">{item.endDate ? dayjs(item.endDate).format('MMM D, YYYY') : 'Open'}</td>
+                  <td className="px-3 py-2">{item.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <SubmittedTimesheetModal timesheet={viewingTimesheet} onClose={() => setViewingTimesheet(null)} />
@@ -1664,6 +1906,8 @@ const RoleDashboardPage = () => {
             Logout
           </button>
         </div>
+
+        <ActiveRoleToolbar user={user} />
 
         {user?.role === 'admin' ? <AdminPanel user={user} /> : null}
         {user?.role === 'hr' ? <HRPanel user={user} /> : null}

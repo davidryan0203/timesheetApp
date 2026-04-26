@@ -106,6 +106,12 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  const refreshUser = async () => {
+    const response = await api.get('/auth/me');
+    setUser(response.data);
+    return response.data;
+  };
+
   const value = useMemo(
     () => ({
       user,
@@ -114,6 +120,8 @@ export const AuthProvider = ({ children }) => {
       login,
       register,
       logout,
+      setUser,
+      refreshUser,
     }),
     [user, loading]
   );

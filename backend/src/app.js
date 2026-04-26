@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const authRoutes = require('./routes/authRoutes');
 const timesheetRoutes = require('./routes/timesheetRoutes');
+const delegationRoutes = require('./routes/delegationRoutes');
+const leaveRoutes = require('./routes/leaveRoutes');
 
 dotenv.config();
 
@@ -56,6 +58,8 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/timesheets', timesheetRoutes);
+app.use('/api/delegations', delegationRoutes);
+app.use('/api/leaves', leaveRoutes);
 
 const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
 if (fs.existsSync(frontendDistPath)) {

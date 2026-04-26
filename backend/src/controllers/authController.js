@@ -12,13 +12,19 @@ const canonicalizeRole = (role) => {
   return role;
 };
 
+const getEffectiveRole = (user) => {
+  return canonicalizeRole(user?.activeRole || user?.role);
+};
+
 const signToken = (user) => {
   return jwt.sign(
     {
       id: user._id,
       email: user.email,
       name: user.name,
-      role: canonicalizeRole(user.role),
+      role: getEffectiveRole(user),
+      primaryRole: canonicalizeRole(user.role),
+      activeRole: user.activeRole || null,
       sessionVersion: Number(user.sessionVersion || 0),
     },
     process.env.JWT_SECRET,
@@ -95,7 +101,9 @@ const register = async (req, res) => {
       id: user._id,
       name: user.name,
       email: user.email,
-      role: canonicalizeRole(user.role),
+      role: getEffectiveRole(user),
+      primaryRole: canonicalizeRole(user.role),
+      activeRole: user.activeRole || null,
       manager: user.manager,
     },
   });
@@ -134,7 +142,9 @@ const createUserByAdmin = async (req, res) => {
       id: user._id,
       name: user.name,
       email: user.email,
-      role: canonicalizeRole(user.role),
+      role: getEffectiveRole(user),
+      primaryRole: canonicalizeRole(user.role),
+      activeRole: user.activeRole || null,
       manager: user.manager,
     },
   });
@@ -166,7 +176,9 @@ const login = async (req, res) => {
       id: user._id,
       name: user.name,
       email: user.email,
-      role: canonicalizeRole(user.role),
+      role: getEffectiveRole(user),
+      primaryRole: canonicalizeRole(user.role),
+      activeRole: user.activeRole || null,
       manager: user.manager,
     },
   });
@@ -196,7 +208,7 @@ const listCeos = async (_req, res) => {
 
 const listUsersForAdmin = async (_req, res) => {
   const users = await User.find({})
-    .select('_id name email role manager createdAt')
+    .select('_id name email role activeRole manager leaveBalances createdAt')
     .populate('manager', 'name email role')
     .sort({ createdAt: -1, name: 1 });
 
@@ -205,8 +217,17 @@ const listUsersForAdmin = async (_req, res) => {
       id: user._id,
       name: user.name,
       email: user.email,
-      role: canonicalizeRole(user.role),
+      role: canonicalizeRole(user.activeRole || user.role),
+      primaryRole: canonicalizeRole(user.role),
+      activeRole: user.activeRole ? canonicalizeRole(user.activeRole) : null,
       createdAt: user.createdAt,
+      leaveBalances: {
+        annualLeave: Number(user.leaveBalances?.annualLeave || 0),
+        sickLeave: Number(user.leaveBalances?.sickLeave || 0),
+        timeInLieu: Number(user.leaveBalances?.timeInLieu || 0),
+        discretionaryLeave: Number(user.leaveBalances?.discretionaryLeave || 0),
+        nonDiscretionaryLeave: Number(user.leaveBalances?.nonDiscretionaryLeave || 0),
+      },
       manager: user.manager
         ? {
             id: user.manager._id,
@@ -298,9 +319,16 @@ const me = async (req, res) => {
     return res.status(404).json({ message: 'User not found' });
   }
 
-  user.role = canonicalizeRole(user.role);
+  const userJson = user.toObject();
+  const primaryRole = canonicalizeRole(userJson.role);
+  const activeRole = userJson.activeRole ? canonicalizeRole(userJson.activeRole) : null;
 
-  return res.json(user);
+  return res.json({
+    ...userJson,
+    role: canonicalizeRole(activeRole || primaryRole),
+    primaryRole,
+    activeRole,
+  });
 };
 
 module.exports = {

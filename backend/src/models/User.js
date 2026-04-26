@@ -45,6 +45,44 @@ const userSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    leaveBalances: {
+      annualLeave: {
+        type: Number,
+        default: 15,
+        min: 0,
+      },
+      sickLeave: {
+        type: Number,
+        default: 21,
+        min: 0,
+      },
+      timeInLieu: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      discretionaryLeave: {
+        type: Number,
+        default: 3,
+        min: 0,
+      },
+      nonDiscretionaryLeave: {
+        type: Number,
+        default: 3,
+        min: 0,
+      },
+    },
+    delegatedRoles: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'RoleDelegation',
+      },
+    ],
+    activeRole: {
+      type: String,
+      enum: ['admin', 'hr', 'manager', 'staff', 'ceo', 'hr_head', 'payroll', 'dispatcher'],
+      default: null,
+    },
   },
   {
     timestamps: true,

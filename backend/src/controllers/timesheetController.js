@@ -37,12 +37,59 @@ const DEFAULT_CUSTOM_TYPES = [
   'Regular Hours',
   'Overtime',
   'Custom Hours',
-  'Half Day - Morning',
-  'Half Day - Afternoon',
+  'Half-day (Morning) w/o pay',
+  'Half-day (Afternoon) w/o pay',
   'Sick Leave',
   'Vacation Leave',
+  'Time-in-Lieu',
+  'Discretionary Leave',
+  'Non-discretionary Leave',
   'Off Day',
 ];
+
+const normalizeLeaveType = (value) => String(value || '').trim().toLowerCase();
+
+const LEAVE_DEDUCTION_RULES = {
+  'vacation leave': { balanceKey: 'annualLeave', units: 1 },
+  'sick leave': { balanceKey: 'sickLeave', units: 1 },
+  'time-in-lieu': { balanceKey: 'timeInLieu', units: 1 },
+  'discretionary leave': { balanceKey: 'discretionaryLeave', units: 1 },
+  'non-discretionary leave': { balanceKey: 'nonDiscretionaryLeave', units: 1 },
+  'half-day (morning) w/o pay': { balanceKey: null, units: 0 },
+  'half-day (afternoon) w/o pay': { balanceKey: null, units: 0 },
+};
+
+const computeLeaveRequirements = (entries = []) => {
+  const required = {
+    annualLeave: 0,
+    sickLeave: 0,
+    timeInLieu: 0,
+    discretionaryLeave: 0,
+    nonDiscretionaryLeave: 0,
+  };
+
+  entries.forEach((entry) => {
+    const normalizedType = normalizeLeaveType(entry?.entryType);
+    const rule = LEAVE_DEDUCTION_RULES[normalizedType];
+    if (!rule || !rule.balanceKey || rule.units <= 0) {
+      return;
+    }
+    required[rule.balanceKey] += rule.units;
+  });
+
+  return required;
+};
+
+const findInsufficientLeaveCredits = (balances, required) => {
+  return Object.keys(required)
+    .filter((key) => required[key] > 0)
+    .map((key) => ({
+      key,
+      required: required[key],
+      available: Number(balances?.[key] || 0),
+    }))
+    .filter((item) => item.available < item.required);
+};
 
 const mapResponse = (timesheetDoc) => {
   const json = timesheetDoc.toObject();
@@ -565,10 +612,50 @@ const hrHeadReviewTimesheet = async (req, res) => {
     return res.status(409).json({ message: 'Timesheet is not ready for HR Head review' });
   }
 
+  const reviewComment = typeof comment === 'string' ? comment.trim() : '';
+
+  if (decision === 'approve') {
+    const owner = await User.findById(timesheet.user?._id || timesheet.user).select('_id leaveBalances');
+    if (!owner) {
+      return res.status(404).json({ message: 'Timesheet owner not found' });
+    }
+
+    const requiredLeave = computeLeaveRequirements(timesheet.entries || []);
+    const insufficient = findInsufficientLeaveCredits(owner.leaveBalances || {}, requiredLeave);
+
+    if (insufficient.length > 0) {
+      const summary = insufficient
+        .map((item) => `${item.key}: required ${item.required}, available ${item.available}`)
+        .join('; ');
+
+      timesheet.status = APPROVAL_STATUSES.HR_HEAD_REJECTED;
+      timesheet.hrHeadReviewedAt = new Date();
+      timesheet.hrHeadComment = [reviewComment, `Auto-rejected due to insufficient leave credits (${summary}).`]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      await timesheet.save();
+
+      return res.status(409).json({
+        message: 'Cannot approve: insufficient leave credits. Timesheet has been rejected.',
+        timesheet: mapResponse(timesheet),
+      });
+    }
+
+    owner.leaveBalances.annualLeave = Number(owner.leaveBalances.annualLeave || 0) - requiredLeave.annualLeave;
+    owner.leaveBalances.sickLeave = Number(owner.leaveBalances.sickLeave || 0) - requiredLeave.sickLeave;
+    owner.leaveBalances.timeInLieu = Number(owner.leaveBalances.timeInLieu || 0) - requiredLeave.timeInLieu;
+    owner.leaveBalances.discretionaryLeave =
+      Number(owner.leaveBalances.discretionaryLeave || 0) - requiredLeave.discretionaryLeave;
+    owner.leaveBalances.nonDiscretionaryLeave =
+      Number(owner.leaveBalances.nonDiscretionaryLeave || 0) - requiredLeave.nonDiscretionaryLeave;
+    await owner.save();
+  }
+
   timesheet.status =
     decision === 'approve' ? APPROVAL_STATUSES.HR_HEAD_APPROVED : APPROVAL_STATUSES.HR_HEAD_REJECTED;
   timesheet.hrHeadReviewedAt = new Date();
-  timesheet.hrHeadComment = typeof comment === 'string' ? comment.trim() : '';
+  timesheet.hrHeadComment = reviewComment;
 
   await timesheet.save();
   return res.json(mapResponse(timesheet));
